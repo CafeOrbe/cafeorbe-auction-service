@@ -1,0 +1,35 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: auction-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/auction_db}
+    username: ${DB_USER:auction}
+    password: ${DB_PASSWORD:auction}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USER:cafeorbe}
+    password: ${RABBIT_PASSWORD:cafeorbe}
+
+cafeorbe:
+  wallet:
+    # Única llamada síncrona entre servicios: consulta de saldo al validar una puja (HU-14)
+    url: ${WALLET_URL:http://localhost:8083}
+    connect-timeout-ms: 1000
+    read-timeout-ms: 2000
+  outbox:
+    scheduler: true
+    intervalo-ms: 200
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
