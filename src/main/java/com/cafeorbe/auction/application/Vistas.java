@@ -14,7 +14,7 @@ public final class Vistas {
                           String subastadorNombre, Long precioActual, int cantidadPujas) {
     }
 
-    public record FichaVista(String identificacion, String raza, BigDecimal pesoKg, Integer edadMeses,
+    public record FichaVista(String identificacion, String tipoCafe, BigDecimal pesoKg, Integer edadMeses,
                              String observaciones) {
     }
 

@@ -194,7 +194,7 @@ class SubastaApiTest {
     // ── HU-09 · Ficha ────────────────────────────────────────────────────
 
     private static final String FICHA = """
-            {"identificacion":"L-001","raza":"Holstein","pesoKg":450.5,"edadMeses":36,"observaciones":"Sana"}""";
+            {"identificacion":"L-001","tipoCafe":"Arábica","pesoKg":450.5,"edadMeses":36,"observaciones":"Sana"}""";
 
     @Test
     @DisplayName("HU-09 · Registro de la ficha: queda asociada y es visible en el detalle")
@@ -204,7 +204,7 @@ class SubastaApiTest {
 
         mvc.perform(ana(get("/api/subastas/" + id)))
                 .andExpect(jsonPath("$.ficha.identificacion").value("L-001"))
-                .andExpect(jsonPath("$.ficha.raza").value("Holstein"))
+                .andExpect(jsonPath("$.ficha.tipoCafe").value("Arábica"))
                 .andExpect(jsonPath("$.ficha.pesoKg").value(450.5))
                 .andExpect(jsonPath("$.ficha.edadMeses").value(36))
                 .andExpect(jsonPath("$.ficha.observaciones").value("Sana"));

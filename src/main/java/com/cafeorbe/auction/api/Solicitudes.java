@@ -22,7 +22,7 @@ public final class Solicitudes {
 
     public record RegistrarFicha(
             @NotBlank(message = "La identificación es obligatoria") String identificacion,
-            @NotBlank(message = "La raza es obligatoria") String raza,
+            @NotBlank(message = "El tipo de café es obligatorio") String tipoCafe,
             @NotNull(message = "El peso es obligatorio") BigDecimal pesoKg,
             @NotNull(message = "La edad es obligatoria") Integer edadMeses,
             String observaciones) {

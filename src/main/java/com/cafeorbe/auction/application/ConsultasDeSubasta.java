@@ -67,7 +67,7 @@ public class ConsultasDeSubasta {
         return new Detalle(
                 s.getId(), s.getNombre(), s.getDescripcion(), s.getEstado(), s.getFechaInicio(),
                 s.getSubastadorId(), s.getSubastadorNombre(),
-                s.getFicha().map(f -> new FichaVista(f.identificacion(), f.raza(), f.pesoKg(), f.edadMeses(),
+                s.getFicha().map(f -> new FichaVista(f.identificacion(), f.tipoCafe(), f.pesoKg(), f.edadMeses(),
                         f.observaciones())).orElse(null),
                 reglas.map(r -> new ReglasVista(r.duracionMinutos(), r.precioBase(), r.incrementoMinimo(),
                         s.getReglasVersion())).orElse(null),

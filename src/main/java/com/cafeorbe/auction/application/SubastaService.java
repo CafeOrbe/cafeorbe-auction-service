@@ -44,7 +44,7 @@ public class SubastaService {
     @Transactional
     public void registrarFicha(UUID id, UsuarioActual usuario, Solicitudes.RegistrarFicha datos) {
         Subasta subasta = cargarPropia(id, usuario);
-        subasta.registrarFicha(new FichaLote(datos.identificacion(), datos.raza(), datos.pesoKg(),
+        subasta.registrarFicha(new FichaLote(datos.identificacion(), datos.tipoCafe(), datos.pesoKg(),
                 datos.edadMeses(), datos.observaciones()));
     }
 

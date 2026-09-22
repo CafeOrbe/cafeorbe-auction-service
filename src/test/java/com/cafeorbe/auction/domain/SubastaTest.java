@@ -63,9 +63,9 @@ class SubastaTest {
     @DisplayName("HU-09 · Registro de la ficha asociada a la subasta")
     void registroDeFicha() {
         Subasta s = programada();
-        s.registrarFicha(new FichaLote("L-001", "Holstein", new BigDecimal("450.5"), 36, "Sana"));
+        s.registrarFicha(new FichaLote("L-001", "Arábica", new BigDecimal("450.5"), 36, "Sana"));
         assertThat(s.getFicha()).isPresent();
-        assertThat(s.getFicha().get().raza()).isEqualTo("Holstein");
+        assertThat(s.getFicha().get().tipoCafe()).isEqualTo("Arábica");
     }
 
     @Test
