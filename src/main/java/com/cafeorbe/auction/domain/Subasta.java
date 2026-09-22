@@ -13,6 +13,7 @@ import jakarta.persistence.Version;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
@@ -53,7 +54,7 @@ public class Subasta {
     @Embedded
     @AttributeOverrides({
             @AttributeOverride(name = "identificacion", column = @Column(name = "ficha_identificacion", length = 100)),
-            @AttributeOverride(name = "raza", column = @Column(name = "ficha_raza", length = 100)),
+            @AttributeOverride(name = "tipoCafe", column = @Column(name = "ficha_tipo_cafe", length = 100)),
             @AttributeOverride(name = "pesoKg", column = @Column(name = "ficha_peso_kg", precision = 10, scale = 2)),
             @AttributeOverride(name = "edadMeses", column = @Column(name = "ficha_edad_meses")),
             @AttributeOverride(name = "observaciones", column = @Column(name = "ficha_observaciones", length = 1000))
@@ -108,7 +109,7 @@ public class Subasta {
         if (fechaInicio == null) {
             throw ReglaDeNegocioException.validacion("La fecha de inicio es obligatoria");
         }
-        if (!fechaInicio.isAfter(ahora)) {
+        if (fechaInicio.isBefore(ahora.truncatedTo(ChronoUnit.MINUTES))) {
             throw ReglaDeNegocioException.validacion("La fecha de inicio debe ser futura");
         }
         Subasta s = new Subasta();
