@@ -8,6 +8,10 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/auction_db}
     username: ${DB_USER:auction}
     password: ${DB_PASSWORD:auction}
+  jackson:
+    deserialization:
+      # Hallazgo 2: 1.5 en un campo entero se rechaza con HTTP 400 en lugar de truncarse a 1.
+      accept-float-as-int: false
   jpa:
     open-in-view: false
     hibernate:

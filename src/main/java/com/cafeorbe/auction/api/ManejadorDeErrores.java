@@ -1,6 +1,8 @@
 package com.cafeorbe.auction.api;
 
 import com.cafeorbe.auction.domain.ReglaDeNegocioException;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -31,7 +33,9 @@ public class ManejadorDeErrores {
             case NO_ENCONTRADO -> HttpStatus.NOT_FOUND;
             case CONFLICTO -> HttpStatus.CONFLICT;
         };
-        return error(estado, e.getMessage(), Map.of());
+        // Hallazgo 3: si el dominio sabe a qué campo se refiere, el formulario lo muestra junto a ese campo.
+        Map<String, String> campos = e.getCampo().map(c -> Map.of(c, e.getMessage())).orElse(Map.of());
+        return error(estado, e.getMessage(), campos);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -42,8 +46,24 @@ public class ManejadorDeErrores {
         return error(HttpStatus.BAD_REQUEST, mensaje, campos);
     }
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
-    public ResponseEntity<ApiError> solicitudInvalida(Exception e) {
+    /**
+     * Hallazgo 2: un decimal (1.5) o un texto en un campo entero ya no se trunca en silencio; se rechaza
+     * y se señala el campo. Requiere {@code spring.jackson.deserialization.accept-float-as-int: false}.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> cuerpoInvalido(HttpMessageNotReadableException e) {
+        if (e.getCause() instanceof MismatchedInputException tipo && !tipo.getPath().isEmpty()) {
+            JsonMappingException.Reference ultimo = tipo.getPath().get(tipo.getPath().size() - 1);
+            if (ultimo.getFieldName() != null) {
+                String mensaje = "Debe ser un número entero";
+                return error(HttpStatus.BAD_REQUEST, mensaje, Map.of(ultimo.getFieldName(), mensaje));
+            }
+        }
+        return error(HttpStatus.BAD_REQUEST, "La solicitud no es válida", Map.of());
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> parametroInvalido(MethodArgumentTypeMismatchException e) {
         return error(HttpStatus.BAD_REQUEST, "La solicitud no es válida", Map.of());
     }
 

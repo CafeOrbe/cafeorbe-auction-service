@@ -8,19 +8,35 @@ import java.math.BigDecimal;
 @Embeddable
 public record FichaLote(String identificacion, String tipoCafe, BigDecimal pesoKg, Integer edadMeses, String observaciones) {
 
+    /** Límites de las columnas de la tabla subasta (V1): superarlos daba HTTP 500 (hallazgo 1). */
+    public static final int MAX_TEXTO_CORTO = 100;
+    public static final int MAX_OBSERVACIONES = 1000;
+
     public FichaLote {
-        if (vacio(identificacion) || vacio(tipoCafe) || pesoKg == null || edadMeses == null) {
-            throw ReglaDeNegocioException.validacion("Identificación, tipo de café, peso y edad son obligatorios");
+        if (vacio(identificacion)) {
+            throw ReglaDeNegocioException.validacion("identificacion", "La identificación es obligatoria");
         }
-        if (pesoKg.signum() <= 0) {
-            throw ReglaDeNegocioException.validacion("El peso debe ser mayor que cero");
+        if (vacio(tipoCafe)) {
+            throw ReglaDeNegocioException.validacion("tipoCafe", "El tipo de café es obligatorio");
         }
-        if (edadMeses < 0) {
-            throw ReglaDeNegocioException.validacion("La edad no puede ser negativa");
+        if (pesoKg == null || pesoKg.signum() <= 0) {
+            throw ReglaDeNegocioException.validacion("pesoKg", "El peso debe ser mayor que cero");
+        }
+        if (edadMeses == null || edadMeses < 0) {
+            throw ReglaDeNegocioException.validacion("edadMeses", "La edad debe ser un número de meses (0 o más)");
         }
         identificacion = identificacion.trim();
         tipoCafe = tipoCafe.trim();
         observaciones = vacio(observaciones) ? null : observaciones.trim();
+        if (identificacion.length() > MAX_TEXTO_CORTO) {
+            throw ReglaDeNegocioException.validacion("identificacion", "La identificación no puede superar 100 caracteres");
+        }
+        if (tipoCafe.length() > MAX_TEXTO_CORTO) {
+            throw ReglaDeNegocioException.validacion("tipoCafe", "El tipo de café no puede superar 100 caracteres");
+        }
+        if (observaciones != null && observaciones.length() > MAX_OBSERVACIONES) {
+            throw ReglaDeNegocioException.validacion("observaciones", "Las observaciones no pueden superar 1000 caracteres");
+        }
     }
 
     private static boolean vacio(String s) {

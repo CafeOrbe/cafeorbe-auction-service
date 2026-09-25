@@ -101,16 +101,16 @@ public class Subasta {
     public static Subasta programar(String nombre, String descripcion, Instant fechaInicio,
                                     UUID subastadorId, String subastadorNombre, Instant ahora) {
         if (nombre == null || nombre.isBlank()) {
-            throw ReglaDeNegocioException.validacion("El nombre es obligatorio");
+            throw ReglaDeNegocioException.validacion("nombre", "El nombre es obligatorio");
         }
         if (nombre.trim().length() > 120) {
-            throw ReglaDeNegocioException.validacion("El nombre no puede superar 120 caracteres");
+            throw ReglaDeNegocioException.validacion("nombre", "El nombre no puede superar 120 caracteres");
         }
         if (fechaInicio == null) {
-            throw ReglaDeNegocioException.validacion("La fecha de inicio es obligatoria");
+            throw ReglaDeNegocioException.validacion("fechaInicio", "La fecha de inicio es obligatoria");
         }
         if (fechaInicio.isBefore(ahora.truncatedTo(ChronoUnit.MINUTES))) {
-            throw ReglaDeNegocioException.validacion("La fecha de inicio debe ser futura");
+            throw ReglaDeNegocioException.validacion("fechaInicio", "La fecha de inicio debe ser futura");
         }
         Subasta s = new Subasta();
         s.id = UUID.randomUUID();

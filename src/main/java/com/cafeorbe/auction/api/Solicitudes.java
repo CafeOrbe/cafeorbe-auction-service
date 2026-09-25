@@ -1,5 +1,6 @@
 package com.cafeorbe.auction.api;
 
+import com.cafeorbe.auction.domain.ReglasDePuja;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -20,18 +21,25 @@ public final class Solicitudes {
             Instant fechaInicio) {
     }
 
+    /** Los límites coinciden con las columnas de la tabla subasta (hallazgo 1). */
     public record RegistrarFicha(
-            @NotBlank(message = "La identificación es obligatoria") String identificacion,
-            @NotBlank(message = "El tipo de café es obligatorio") String tipoCafe,
-            @NotNull(message = "El peso es obligatorio") BigDecimal pesoKg,
-            @NotNull(message = "La edad es obligatoria") Integer edadMeses,
+            @NotBlank(message = "La identificación es obligatoria")
+            @Size(max = 100, message = "La identificación no puede superar 100 caracteres")
+            String identificacion,
+            @NotBlank(message = "El tipo de café es obligatorio")
+            @Size(max = 100, message = "El tipo de café no puede superar 100 caracteres")
+            String tipoCafe,
+            @NotNull(message = "El peso debe ser mayor que cero") BigDecimal pesoKg,
+            @NotNull(message = "La edad debe ser un número de meses (0 o más)") Integer edadMeses,
+            @Size(max = 1000, message = "Las observaciones no pueden superar 1000 caracteres")
             String observaciones) {
     }
 
+    /** Mismo mensaje que el frontend para un campo vacío o no positivo (hallazgo 8). */
     public record ConfigurarReglas(
-            @NotNull(message = "Todos los campos son obligatorios") Integer duracionMinutos,
-            @NotNull(message = "Todos los campos son obligatorios") Long precioBase,
-            @NotNull(message = "Todos los campos son obligatorios") Long incrementoMinimo) {
+            @NotNull(message = ReglasDePuja.MSG_VALORES_POSITIVOS) Integer duracionMinutos,
+            @NotNull(message = ReglasDePuja.MSG_VALORES_POSITIVOS) Long precioBase,
+            @NotNull(message = ReglasDePuja.MSG_VALORES_POSITIVOS) Long incrementoMinimo) {
     }
 
     private Solicitudes() {

@@ -6,9 +6,18 @@ package com.cafeorbe.auction.domain;
  */
 public record ReglasDePuja(int duracionMinutos, long precioBase, long incrementoMinimo) {
 
+    public static final String MSG_VALORES_POSITIVOS = "Los valores deben ser mayores que cero";
+
     public ReglasDePuja {
-        if (duracionMinutos <= 0 || precioBase <= 0 || incrementoMinimo <= 0) {
-            throw ReglaDeNegocioException.validacion("Los valores deben ser mayores que cero");
+        // Se revisan en el orden del formulario para señalar el primer campo inválido (hallazgo 3).
+        if (duracionMinutos <= 0) {
+            throw ReglaDeNegocioException.validacion("duracionMinutos", MSG_VALORES_POSITIVOS);
+        }
+        if (precioBase <= 0) {
+            throw ReglaDeNegocioException.validacion("precioBase", MSG_VALORES_POSITIVOS);
+        }
+        if (incrementoMinimo <= 0) {
+            throw ReglaDeNegocioException.validacion("incrementoMinimo", MSG_VALORES_POSITIVOS);
         }
     }
 }

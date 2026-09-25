@@ -72,9 +72,31 @@ class SubastaTest {
     @DisplayName("HU-09 · Edición bloqueada tras iniciar")
     void edicionBloqueadaTrasIniciar() {
         Subasta s = enCurso();
-        assertThatThrownBy(() -> s.registrarFicha(new FichaLote("L-001", "Holstein", BigDecimal.TEN, 12, null)))
+        assertThatThrownBy(() -> s.registrarFicha(new FichaLote("L-001", "Arábica", BigDecimal.TEN, 12, null)))
                 .isInstanceOf(ReglaDeNegocioException.class)
                 .hasMessage("La ficha no se puede editar con la subasta iniciada");
+    }
+
+    @Test
+    @DisplayName("HU-09 · Textos más largos que la columna se rechazan con el campo señalado (hallazgos 1 y 3)")
+    void fichaConTextosLargos() {
+        assertThatThrownBy(() -> new FichaLote("X".repeat(101), "Arábica", BigDecimal.TEN, 1, null))
+                .isInstanceOfSatisfying(ReglaDeNegocioException.class,
+                        e -> assertThat(e.getCampo()).contains("identificacion"));
+        assertThatThrownBy(() -> new FichaLote("L-1", "Arábica", BigDecimal.TEN, 1, "o".repeat(1001)))
+                .isInstanceOfSatisfying(ReglaDeNegocioException.class,
+                        e -> assertThat(e.getCampo()).contains("observaciones"));
+        assertThat(new FichaLote("X".repeat(100), "Arábica", BigDecimal.TEN, 1, "o".repeat(1000)).identificacion())
+                .hasSize(100);
+    }
+
+    @Test
+    @DisplayName("HU-09 · Peso y edad inválidos señalan su campo (hallazgo 3)")
+    void fichaConValoresInvalidos() {
+        assertThatThrownBy(() -> new FichaLote("L-1", "Arábica", BigDecimal.ZERO, 1, null))
+                .isInstanceOfSatisfying(ReglaDeNegocioException.class, e -> assertThat(e.getCampo()).contains("pesoKg"));
+        assertThatThrownBy(() -> new FichaLote("L-1", "Arábica", BigDecimal.TEN, -1, null))
+                .isInstanceOfSatisfying(ReglaDeNegocioException.class, e -> assertThat(e.getCampo()).contains("edadMeses"));
     }
 
     // ── HU-10 ──────────────────────────────────────────────────────────────

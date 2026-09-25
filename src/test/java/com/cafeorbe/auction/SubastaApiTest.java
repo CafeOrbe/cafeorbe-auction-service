@@ -147,7 +147,8 @@ class SubastaApiTest {
         mvc.perform(luis(post("/api/subastas"))
                         .content(crearSubastaConFecha("Lote", Instant.now().minus(1, ChronoUnit.DAYS))))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.mensaje").value("La fecha de inicio debe ser futura"));
+                .andExpect(jsonPath("$.mensaje").value("La fecha de inicio debe ser futura"))
+                .andExpect(jsonPath("$.campos.fechaInicio").value("La fecha de inicio debe ser futura"));
         assertThat(subastas.count()).isZero();
     }
 
@@ -227,6 +228,30 @@ class SubastaApiTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    @DisplayName("HU-09 · Textos más largos que la columna: HTTP 400 junto al campo, no 500 (hallazgo 1)")
+    void fichaConTextosLargos() throws Exception {
+        String id = crearSubasta("Lote");
+        String larga = FICHA.replace("\"L-001\"", "\"" + "X".repeat(101) + "\"");
+        mvc.perform(luis(put("/api/subastas/" + id + "/ficha")).content(larga))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos.identificacion").value("La identificación no puede superar 100 caracteres"));
+        String observacionesLargas = FICHA.replace("\"Sana\"", "\"" + "o".repeat(1001) + "\"");
+        mvc.perform(luis(put("/api/subastas/" + id + "/ficha")).content(observacionesLargas))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos.observaciones").exists());
+        mvc.perform(ana(get("/api/subastas/" + id))).andExpect(jsonPath("$.ficha").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("HU-09 · Peso no positivo: el error del dominio llega junto al campo (hallazgo 3)")
+    void fichaConPesoInvalido() throws Exception {
+        String id = crearSubasta("Lote");
+        mvc.perform(luis(put("/api/subastas/" + id + "/ficha")).content(FICHA.replace("450.5", "-1")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos.pesoKg").value("El peso debe ser mayor que cero"));
+    }
+
     // ── HU-10 · Reglas ───────────────────────────────────────────────────
 
     @Test
@@ -249,7 +274,31 @@ class SubastaApiTest {
         mvc.perform(luis(put("/api/subastas/" + id + "/reglas"))
                         .content("{\"duracionMinutos\":10,\"precioBase\":0,\"incrementoMinimo\":10}"))
                 .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.mensaje").value("Los valores deben ser mayores que cero"))
+                .andExpect(jsonPath("$.campos.precioBase").value("Los valores deben ser mayores que cero"));
+        mvc.perform(luis(put("/api/subastas/" + id + "/reglas"))
+                        .content("{\"duracionMinutos\":10,\"precioBase\":100,\"incrementoMinimo\":0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos.incrementoMinimo").value("Los valores deben ser mayores que cero"));
+        mvc.perform(luis(put("/api/subastas/" + id + "/reglas")).content("{\"duracionMinutos\":10}"))
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.mensaje").value("Los valores deben ser mayores que cero"));
+        mvc.perform(ana(get("/api/subastas/" + id))).andExpect(jsonPath("$.reglas").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("HU-10 · Decimales: HTTP 400 junto al campo en lugar de truncarse (hallazgo 2)")
+    void reglasConDecimales() throws Exception {
+        String id = crearSubasta("Lote");
+        mvc.perform(luis(put("/api/subastas/" + id + "/reglas"))
+                        .content("{\"duracionMinutos\":1.5,\"precioBase\":100,\"incrementoMinimo\":10}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos.duracionMinutos").value("Debe ser un número entero"));
+        mvc.perform(luis(put("/api/subastas/" + id + "/reglas"))
+                        .content("{\"duracionMinutos\":10,\"precioBase\":0.5,\"incrementoMinimo\":10}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos.precioBase").value("Debe ser un número entero"));
+        mvc.perform(ana(get("/api/subastas/" + id))).andExpect(jsonPath("$.reglas").doesNotExist());
     }
 
     // ── HU-12 · Iniciar ──────────────────────────────────────────────────
@@ -274,6 +323,7 @@ class SubastaApiTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.mensaje").value("Configura primero el tiempo y las reglas de puja"));
         assertThat(outbox.count()).isZero();
+        mvc.perform(ana(get("/api/subastas/" + id))).andExpect(jsonPath("$.estado").value("PROGRAMADA"));
     }
 
     // ── HU-13 y HU-14 · Pujas ────────────────────────────────────────────
