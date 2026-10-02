@@ -362,9 +362,9 @@ El pipeline (`.github/workflows/ci.yml`) compila `cafeorbe-contracts`, ejecuta l
 | Riesgo o deuda | Impacto | Acción propuesta |
 |---|---|---|
 | No hay cierre automático | Al pasar la hora de fin la subasta sigue `EN_CURSO` (las pujas tardías sí se rechazan) | HU-19, Sprint 2: programador en el servidor |
-| El servicio confía en las cabeceras `X-User-*` | Si es accesible desde fuera del gateway, cualquiera puede suplantar a un usuario | Ingress interno en el despliegue; el pipeline hoy lo crea como externo |
+| El servicio confía en las cabeceras `X-User-*` | Si es accesible desde fuera del gateway, cualquiera puede suplantar a un usuario | En el ambiente actual (express) el ingress interno no tiene efecto. Hace falta un secreto compartido entre el gateway y los servicios, o un ambiente con red propia |
 | QA y PROD comparten base de datos y broker en el pipeline | Los datos y eventos de un ambiente afectarían al otro. PROD aún no se ha desplegado | Separar bases y vhost por ambiente antes de la primera etiqueta |
-| En la nube, `WALLET_URL` usa `http` hacia un nombre interno | Por verificar: el ambiente redirige a `https` y el cliente no sigue la redirección, así que toda puja se rechazaría con saldo no disponible | Probar una puja en QA; ver `cafeorbe-infra`, riesgo 5 |
+| En la nube, `WALLET_URL` apuntaba a un nombre `.internal.` que no existe en el ambiente | Las pujas no podían consultar el saldo | Corregido y verificado en QA: `https` con el nombre real de la aplicación |
 | Las reglas guardan solo un contador de versión | No se puede auditar qué valores tenían antes | Historial de reglas si se necesita auditoría |
 | La outbox no se purga | La tabla crece indefinidamente | Tarea de limpieza de eventos ya publicados |
 
