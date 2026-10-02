@@ -5,6 +5,7 @@ import com.cafeorbe.auction.application.Vistas.FichaVista;
 import com.cafeorbe.auction.application.Vistas.LiderVista;
 import com.cafeorbe.auction.application.Vistas.PujaVista;
 import com.cafeorbe.auction.application.Vistas.ReglasVista;
+import com.cafeorbe.auction.application.Vistas.Resultados;
 import com.cafeorbe.auction.application.Vistas.Resumen;
 import com.cafeorbe.auction.domain.EstadoSubasta;
 import com.cafeorbe.auction.domain.Puja;
@@ -16,6 +17,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
@@ -30,10 +33,12 @@ public class ConsultasDeSubasta {
 
     private final SubastaRepository subastas;
     private final PujaRepository pujas;
+    private final Clock reloj;
 
-    public ConsultasDeSubasta(SubastaRepository subastas, PujaRepository pujas) {
+    public ConsultasDeSubasta(SubastaRepository subastas, PujaRepository pujas, Clock reloj) {
         this.subastas = subastas;
         this.pujas = pujas;
+        this.reloj = reloj;
     }
 
     /** HU-04: subastas por estado, ordenadas por fecha. Sin filtro devuelve todas. */
@@ -62,13 +67,37 @@ public class ConsultasDeSubasta {
                 .map(ConsultasDeSubasta::puja).toList();
     }
 
+    /** HU-22: resultados de una subasta ya cerrada, visibles para cualquier participante autenticado. */
+    public Resultados resultados(UUID id) {
+        Subasta s = subastas.findById(id).orElseThrow(() -> ReglaDeNegocioException.noEncontrado("La subasta no existe"));
+        if (!s.getEstado().terminada()) {
+            throw ReglaDeNegocioException.conflicto("La subasta aún no ha finalizado");
+        }
+        boolean conGanador = s.getEstado() == EstadoSubasta.FINALIZADA;
+        return new Resultados(s.getId(), s.getNombre(), s.getDescripcion(), s.getEstado(), s.getSubastadorNombre(),
+                ficha(s),
+                conGanador ? new LiderVista(s.getLiderId(), s.getLiderNombre()) : null,
+                conGanador ? s.precioActualOBase() : null,
+                s.getCantidadPujas(), ultimasPujas(s), s.getCerradaEn());
+    }
+
+    private static FichaVista ficha(Subasta s) {
+        return s.getFicha().map(f -> new FichaVista(f.identificacion(), f.tipoCafe(), f.pesoKg(), f.edadMeses(),
+                f.observaciones())).orElse(null);
+    }
+
+    private List<PujaVista> ultimasPujas(Subasta s) {
+        return pujas.findBySubastaIdOrderByMontoDesc(s.getId(), PageRequest.of(0, ULTIMAS_PUJAS)).stream()
+                .map(ConsultasDeSubasta::puja).toList();
+    }
+
     private Detalle detalle(Subasta s) {
         var reglas = s.reglas();
+        Instant ahora = reloj.instant();
         return new Detalle(
                 s.getId(), s.getNombre(), s.getDescripcion(), s.getEstado(), s.getFechaInicio(),
                 s.getSubastadorId(), s.getSubastadorNombre(),
-                s.getFicha().map(f -> new FichaVista(f.identificacion(), f.tipoCafe(), f.pesoKg(), f.edadMeses(),
-                        f.observaciones())).orElse(null),
+                ficha(s),
                 reglas.map(r -> new ReglasVista(r.duracionMinutos(), r.precioBase(), r.incrementoMinimo(),
                         s.getReglasVersion())).orElse(null),
                 s.getHoraInicio(), s.getHoraFin(),
@@ -76,8 +105,10 @@ public class ConsultasDeSubasta {
                 reglas.isPresent() ? s.siguienteMinimo() : null,
                 s.getLiderId() == null ? null : new LiderVista(s.getLiderId(), s.getLiderNombre()),
                 s.getCantidadPujas(),
-                pujas.findBySubastaIdOrderByMontoDesc(s.getId(), PageRequest.of(0, ULTIMAS_PUJAS)).stream()
-                        .map(ConsultasDeSubasta::puja).toList());
+                ultimasPujas(s),
+                ahora,
+                s.getEstado() == EstadoSubasta.EN_CURSO ? s.segundosRestantes(ahora) : null,
+                s.getExtensiones(), s.getMaxExtensiones());
     }
 
     private static Resumen resumen(Subasta s) {

@@ -234,4 +234,107 @@ class SubastaTest {
         assertThat(r.motivo()).isEqualTo(MotivoRechazo.SUBASTA_FINALIZADA);
         assertThat(r.motivo().mensaje()).isEqualTo("La subasta ya finalizó");
     }
+
+    // ── HU-17 · Tiempo restante según el servidor ──────────────────────────
+
+    @Test
+    @DisplayName("HU-17 · El servidor entrega el tiempo restante; es 0 al vencer o si la subasta no está en curso")
+    void tiempoRestante() {
+        Subasta s = enCurso();
+        assertThat(s.segundosRestantes(AHORA)).isEqualTo(600);
+        assertThat(s.segundosRestantes(AHORA.plusSeconds(545))).isEqualTo(55);
+        assertThat(s.segundosRestantes(AHORA.plusSeconds(700))).isZero();
+        assertThat(programada().segundosRestantes(AHORA)).isZero();
+    }
+
+    // ── HU-18 · Anti-sniping ───────────────────────────────────────────────
+
+    private Subasta enCursoCon(AntiSniping regla) {
+        Subasta s = programada();
+        s.configurarReglas(new ReglasDePuja(10, 100, 10));
+        s.iniciar(AHORA, regla);
+        return s;
+    }
+
+    @Test
+    @DisplayName("HU-18 · Extensión por puja al final: quedan 15 s, ventana de 30 s → se extiende 30 s")
+    void extensionPorPujaAlFinal() {
+        Subasta s = enCursoCon(new AntiSniping(30, 3));
+        Instant finOriginal = s.getHoraFin();
+
+        var aceptada = (ResultadoPuja.Aceptada) s.pujar(ANA, "Ana", 110, OptionalLong.of(500), finOriginal.minusSeconds(15));
+
+        assertThat(aceptada.extension()).isNotNull();
+        assertThat(aceptada.extension().segundos()).isEqualTo(30);
+        assertThat(aceptada.extension().numero()).isEqualTo(1);
+        assertThat(aceptada.extension().horaFin()).isEqualTo(finOriginal.plusSeconds(30));
+        assertThat(s.getHoraFin()).isEqualTo(finOriginal.plusSeconds(30));
+        assertThat(s.getExtensiones()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("HU-18 · Una puja fuera de la ventana final no extiende el tiempo")
+    void pujaFueraDeLaVentana() {
+        Subasta s = enCursoCon(new AntiSniping(30, 3));
+        Instant finOriginal = s.getHoraFin();
+
+        var aceptada = (ResultadoPuja.Aceptada) s.pujar(ANA, "Ana", 110, OptionalLong.of(500), finOriginal.minusSeconds(31));
+
+        assertThat(aceptada.extension()).isNull();
+        assertThat(s.getHoraFin()).isEqualTo(finOriginal);
+    }
+
+    @Test
+    @DisplayName("HU-18 · Límite de extensiones: alcanzado el máximo, otra puja en la ventana final no extiende")
+    void limiteDeExtensiones() {
+        Subasta s = enCursoCon(new AntiSniping(30, 1));
+        Instant finOriginal = s.getHoraFin();
+        s.pujar(ANA, "Ana", 110, OptionalLong.of(500), finOriginal.minusSeconds(15));
+        Instant finExtendido = s.getHoraFin();
+
+        var segunda = (ResultadoPuja.Aceptada) s.pujar(BRUNO, "Bruno", 120, OptionalLong.of(500), finExtendido.minusSeconds(10));
+
+        assertThat(segunda.extension()).isNull();
+        assertThat(s.getHoraFin()).isEqualTo(finExtendido);
+        assertThat(s.getExtensiones()).isEqualTo(1);
+        // La subasta cierra con normalidad en la hora ya extendida.
+        s.cerrar(finExtendido);
+        assertThat(s.getEstado()).isEqualTo(EstadoSubasta.FINALIZADA);
+    }
+
+    // ── HU-19 · Cierre automático ──────────────────────────────────────────
+
+    @Test
+    @DisplayName("HU-19 · Cierre con ganador: Finalizada, la última puja válida gana y se bloquean nuevas pujas")
+    void cierreConGanador() {
+        Subasta s = enCurso();
+        s.pujar(ANA, "Ana", 110, OptionalLong.of(500), AHORA.plusSeconds(5));
+        s.pujar(BRUNO, "Bruno", 120, OptionalLong.of(500), AHORA.plusSeconds(6));
+
+        s.cerrar(s.getHoraFin());
+
+        assertThat(s.getEstado()).isEqualTo(EstadoSubasta.FINALIZADA);
+        assertThat(s.getLiderId()).isEqualTo(BRUNO);
+        assertThat(s.precioActualOBase()).isEqualTo(120);
+        assertThat(s.getCerradaEn()).isEqualTo(s.getHoraFin());
+        assertThat(rechazada(s.pujar(ANA, "Ana", 130, OptionalLong.of(500), s.getHoraFin().plusSeconds(1))).motivo())
+                .isEqualTo(MotivoRechazo.SUBASTA_FINALIZADA);
+    }
+
+    @Test
+    @DisplayName("HU-19 · Cierre sin pujas: la subasta queda Desierta")
+    void cierreSinPujas() {
+        Subasta s = enCurso();
+        s.cerrar(s.getHoraFin().plusSeconds(1));
+        assertThat(s.getEstado()).isEqualTo(EstadoSubasta.DESIERTA);
+        assertThat(s.getLiderId()).isNull();
+    }
+
+    @Test
+    @DisplayName("HU-19 · No se puede cerrar antes de tiempo ni una subasta que no está en curso")
+    void cierreFueraDeLugar() {
+        Subasta s = enCurso();
+        assertThatThrownBy(() -> s.cerrar(s.getHoraFin().minusSeconds(1))).hasMessage("La subasta aún no ha terminado");
+        assertThatThrownBy(() -> programada().cerrar(AHORA)).hasMessage("La subasta no está en curso");
+    }
 }

@@ -4,6 +4,7 @@ import com.cafeorbe.auction.application.ConsultasDeSubasta;
 import com.cafeorbe.auction.application.SubastaService;
 import com.cafeorbe.auction.application.Vistas.Detalle;
 import com.cafeorbe.auction.application.Vistas.PujaVista;
+import com.cafeorbe.auction.application.Vistas.Resultados;
 import com.cafeorbe.auction.application.Vistas.Resumen;
 import com.cafeorbe.auction.domain.EstadoSubasta;
 import com.cafeorbe.auction.domain.ReglaDeNegocioException;
@@ -90,6 +91,12 @@ public class SubastaController {
     @GetMapping("/{id}/pujas")
     public List<PujaVista> historial(UsuarioActual usuario, @PathVariable UUID id) {
         return consultas.historial(id, 100);
+    }
+
+    /** HU-22: resultados de una subasta cerrada. 409 si todavía no ha finalizado. */
+    @GetMapping("/{id}/resultados")
+    public Resultados resultados(UsuarioActual usuario, @PathVariable UUID id) {
+        return consultas.resultados(id);
     }
 
     private static Set<EstadoSubasta> parsearEstados(String estado) {

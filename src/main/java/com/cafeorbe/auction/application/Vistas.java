@@ -27,10 +27,24 @@ public final class Vistas {
     public record PujaVista(UUID id, UUID usuarioId, String usuarioNombre, long monto, Instant creadaEn) {
     }
 
+    /**
+     * @param horaServidor      hora del servidor al responder: el cliente mide el tiempo contra ella, no contra
+     *                          su propio reloj (HU-17)
+     * @param segundosRestantes tiempo que queda según el servidor; {@code null} si la subasta no está en curso
+     */
     public record Detalle(UUID id, String nombre, String descripcion, EstadoSubasta estado, Instant fechaInicio,
                           UUID subastadorId, String subastadorNombre, FichaVista ficha, ReglasVista reglas,
                           Instant horaInicio, Instant horaFin, Long precioActual, Long siguienteMinimo,
-                          LiderVista lider, int cantidadPujas, List<PujaVista> ultimasPujas) {
+                          LiderVista lider, int cantidadPujas, List<PujaVista> ultimasPujas,
+                          Instant horaServidor, Long segundosRestantes, int extensiones, int maxExtensiones) {
+    }
+
+    /**
+     * HU-22: resumen de una subasta cerrada. El ganador y el monto final son nulos si quedó desierta.
+     */
+    public record Resultados(UUID id, String nombre, String descripcion, EstadoSubasta estado,
+                             String subastadorNombre, FichaVista ficha, LiderVista ganador, Long montoFinal,
+                             int cantidadPujas, List<PujaVista> ultimasPujas, Instant cerradaEn) {
     }
 
     private Vistas() {

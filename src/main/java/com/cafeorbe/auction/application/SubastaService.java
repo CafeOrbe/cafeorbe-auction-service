@@ -2,6 +2,7 @@ package com.cafeorbe.auction.application;
 
 import com.cafeorbe.auction.api.Solicitudes;
 import com.cafeorbe.auction.api.UsuarioActual;
+import com.cafeorbe.auction.domain.AntiSniping;
 import com.cafeorbe.auction.domain.FichaLote;
 import com.cafeorbe.auction.domain.ReglaDeNegocioException;
 import com.cafeorbe.auction.domain.ReglasDePuja;
@@ -11,6 +12,7 @@ import com.cafeorbe.auction.infrastructure.outbox.OutboxWriter;
 import com.cafeorbe.contracts.Eventos;
 import com.cafeorbe.contracts.Rol;
 import com.cafeorbe.contracts.eventos.SubastaIniciada;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,11 +26,15 @@ public class SubastaService {
     private final SubastaRepository subastas;
     private final OutboxWriter outbox;
     private final Clock reloj;
+    private final AntiSniping antiSniping;
 
-    public SubastaService(SubastaRepository subastas, OutboxWriter outbox, Clock reloj) {
+    public SubastaService(SubastaRepository subastas, OutboxWriter outbox, Clock reloj,
+                          @Value("${cafeorbe.subasta.anti-sniping.ventana-segundos}") int ventanaSegundos,
+                          @Value("${cafeorbe.subasta.anti-sniping.max-extensiones}") int maxExtensiones) {
         this.subastas = subastas;
         this.outbox = outbox;
         this.reloj = reloj;
+        this.antiSniping = new AntiSniping(ventanaSegundos, maxExtensiones);
     }
 
     /** HU-08 */
@@ -56,11 +62,14 @@ public class SubastaService {
                 datos.incrementoMinimo()));
     }
 
-    /** HU-12: el cambio de estado y el evento SubastaIniciada se guardan en la misma transacción. */
+    /**
+     * HU-12: el cambio de estado y el evento SubastaIniciada se guardan en la misma transacción.
+     * HU-18: la regla anti-sniping configurada queda fijada en la subasta desde este momento.
+     */
     @Transactional
     public void iniciar(UUID id, UsuarioActual usuario) {
         Subasta subasta = cargarPropia(id, usuario);
-        subasta.iniciar(reloj.instant());
+        subasta.iniciar(reloj.instant(), antiSniping);
         outbox.registrar(Eventos.SUBASTA_INICIADA, new SubastaIniciada(subasta.getId(), subasta.getNombre(),
                 subasta.getPrecioBase(), subasta.getIncrementoMinimo(), subasta.getDuracionMinutos(),
                 subasta.getHoraInicio(), subasta.getHoraFin()));

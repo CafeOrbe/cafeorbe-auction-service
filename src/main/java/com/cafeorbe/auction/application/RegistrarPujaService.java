@@ -12,6 +12,7 @@ import com.cafeorbe.contracts.Eventos;
 import com.cafeorbe.contracts.Rol;
 import com.cafeorbe.contracts.eventos.PujaAceptada;
 import com.cafeorbe.contracts.eventos.PujaRechazada;
+import com.cafeorbe.contracts.eventos.TiempoExtendido;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -66,6 +67,12 @@ public class RegistrarPujaService {
                     outbox.registrar(Eventos.PUJA_ACEPTADA, new PujaAceptada(subastaId, puja.getId(),
                             usuario.id(), usuario.nombre(), puja.getMonto(), subasta.getCantidadPujas(), siguiente,
                             puja.getCreadaEn()));
+                    // HU-18: la extensión queda registrada como evento, después del de la puja que la provocó.
+                    var extension = aceptada.extension();
+                    if (extension != null) {
+                        outbox.registrar(Eventos.TIEMPO_EXTENDIDO, new TiempoExtendido(subastaId, extension.segundos(),
+                                extension.horaFin(), extension.numero(), extension.maximo()));
+                    }
                 }
                 case ResultadoPuja.Rechazada rechazada -> outbox.registrar(Eventos.PUJA_RECHAZADA,
                         new PujaRechazada(subastaId, usuario.id(), rechazada.montoIntentado(),

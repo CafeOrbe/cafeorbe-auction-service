@@ -91,6 +91,19 @@ public class Subasta {
     @Column(name = "cantidad_pujas", nullable = false)
     private int cantidadPujas;
 
+    /** HU-18: ventana final en la que una puja válida extiende el tiempo. Se fija al iniciar la subasta. */
+    @Column(name = "ventana_antisniping_seg")
+    private Integer ventanaAntiSnipingSegundos;
+
+    @Column(name = "max_extensiones")
+    private Integer maxExtensiones;
+
+    @Column(nullable = false)
+    private int extensiones;
+
+    @Column(name = "cerrada_en")
+    private Instant cerradaEn;
+
     @Column(name = "creada_en", nullable = false, updatable = false)
     private Instant creadaEn;
 
@@ -145,6 +158,11 @@ public class Subasta {
 
     /** HU-12: pasa a En curso, fija la hora de fin con la duración configurada y habilita las pujas. */
     public void iniciar(Instant ahora) {
+        iniciar(ahora, AntiSniping.DESACTIVADO);
+    }
+
+    /** HU-12 y HU-18: inicia la subasta y deja fijada la regla anti-sniping con la que se va a jugar. */
+    public void iniciar(Instant ahora, AntiSniping antiSniping) {
         if (estado != EstadoSubasta.PROGRAMADA) {
             throw ReglaDeNegocioException.conflicto("La subasta ya fue iniciada");
         }
@@ -155,6 +173,9 @@ public class Subasta {
         this.horaInicio = ahora;
         this.horaFin = ahora.plus(Duration.ofMinutes(duracionMinutos));
         this.precioActual = precioBase;
+        this.ventanaAntiSnipingSegundos = antiSniping.ventanaSegundos();
+        this.maxExtensiones = antiSniping.maxExtensiones();
+        this.extensiones = 0;
     }
 
     /**
@@ -190,7 +211,50 @@ public class Subasta {
         this.liderId = usuarioId;
         this.liderNombre = usuarioNombre;
         this.cantidadPujas++;
-        return new ResultadoPuja.Aceptada(new Puja(id, usuarioId, usuarioNombre, monto, ahora));
+        return new ResultadoPuja.Aceptada(new Puja(id, usuarioId, usuarioNombre, monto, ahora), extenderSiCorresponde(ahora));
+    }
+
+    /**
+     * HU-18 (anti-sniping): una puja válida dentro de la ventana final alarga la subasta esa misma cantidad
+     * de segundos, hasta agotar el máximo de extensiones. Después la subasta cierra con normalidad.
+     *
+     * @return la extensión aplicada, o {@code null} si no hubo
+     */
+    private ResultadoPuja.Extension extenderSiCorresponde(Instant ahora) {
+        int ventana = ventanaAntiSnipingSegundos == null ? 0 : ventanaAntiSnipingSegundos;
+        int maximo = maxExtensiones == null ? 0 : maxExtensiones;
+        if (ventana <= 0 || extensiones >= maximo) {
+            return null;
+        }
+        if (Duration.between(ahora, horaFin).compareTo(Duration.ofSeconds(ventana)) > 0) {
+            return null;
+        }
+        this.horaFin = horaFin.plusSeconds(ventana);
+        this.extensiones++;
+        return new ResultadoPuja.Extension(ventana, horaFin, extensiones, maximo);
+    }
+
+    /**
+     * HU-19: cierra la subasta cuando se acaba el tiempo. Con pujas queda Finalizada y la última puja válida
+     * es la ganadora; sin pujas queda Desierta.
+     */
+    public void cerrar(Instant ahora) {
+        if (estado != EstadoSubasta.EN_CURSO) {
+            throw ReglaDeNegocioException.conflicto("La subasta no está en curso");
+        }
+        if (ahora.isBefore(horaFin)) {
+            throw ReglaDeNegocioException.conflicto("La subasta aún no ha terminado");
+        }
+        this.estado = cantidadPujas > 0 ? EstadoSubasta.FINALIZADA : EstadoSubasta.DESIERTA;
+        this.cerradaEn = ahora;
+    }
+
+    /** HU-17: segundos que quedan según el servidor; 0 si ya venció o si la subasta no está en curso. */
+    public long segundosRestantes(Instant ahora) {
+        if (estado != EstadoSubasta.EN_CURSO || horaFin == null) {
+            return 0;
+        }
+        return Math.max(0, Duration.between(ahora, horaFin).toSeconds());
     }
 
     private ResultadoPuja rechazar(MotivoRechazo motivo, long monto) {
@@ -222,6 +286,18 @@ public class Subasta {
 
     public boolean esDe(UUID usuarioId) {
         return subastadorId.equals(usuarioId);
+    }
+
+    public int getExtensiones() {
+        return extensiones;
+    }
+
+    public int getMaxExtensiones() {
+        return maxExtensiones == null ? 0 : maxExtensiones;
+    }
+
+    public Instant getCerradaEn() {
+        return cerradaEn;
     }
 
     public UUID getId() {
