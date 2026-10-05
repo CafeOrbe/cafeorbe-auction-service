@@ -234,4 +234,67 @@ class SubastaTest {
         assertThat(r.motivo()).isEqualTo(MotivoRechazo.SUBASTA_FINALIZADA);
         assertThat(r.motivo().mensaje()).isEqualTo("La subasta ya finalizó");
     }
+
+    // ── Límites y bloqueos que no dependen del repositorio ─────────────────
+
+    @Test
+    @DisplayName("Un nombre de solo espacios también se rechaza: no es un nombre")
+    void nombreDeSoloEspacios() {
+        assertThatThrownBy(() -> Subasta.programar("   ", null, AHORA.plusSeconds(60), LUIS, "Luis", AHORA))
+                .hasMessage("El nombre es obligatorio");
+    }
+
+    @Test
+    @DisplayName("Un nombre de más de 120 caracteres se rechaza antes de llegar a la base (hallazgo 1)")
+    void nombreDemasiadoLargo() {
+        var largo = "L".repeat(121);
+
+        assertThatThrownBy(() -> Subasta.programar(largo, null, AHORA.plusSeconds(60), LUIS, "Luis", AHORA))
+                .isInstanceOf(ReglaDeNegocioException.class)
+                .hasMessage("El nombre no puede superar 120 caracteres");
+    }
+
+    @Test
+    @DisplayName("Una descripción de solo espacios queda en null, no como cadena vacía")
+    void descripcionVaciaQuedaEnNull() {
+        assertThat(programada().getDescripcion()).isEqualTo("Descripción");
+
+        var sinDescripcion = Subasta.programar("Lote", "   ", AHORA.plusSeconds(60), LUIS, "Luis", AHORA);
+        assertThat(sinDescripcion.getDescripcion()).isNull();
+    }
+
+    @Test
+    @DisplayName("Con la subasta ya iniciada, cambiar las reglas es un conflicto, no un permiso")
+    void cambiarReglasTrasIniciar() {
+        Subasta s = enCurso();
+
+        assertThatThrownBy(() -> s.configurarReglas(new ReglasDePuja(20, 200, 20)))
+                .isInstanceOf(ReglaDeNegocioException.class)
+                .hasMessage("Las reglas no se pueden cambiar con la subasta iniciada");
+    }
+
+    @Test
+    @DisplayName("Iniciar dos veces es un conflicto: la hora de inicio no se pisa")
+    void iniciarDosVeces() {
+        Subasta s = enCurso();
+        var horaOriginal = s.getHoraInicio();
+
+        assertThatThrownBy(() -> s.iniciar(AHORA.plus(Duration.ofHours(1))))
+                .isInstanceOf(ReglaDeNegocioException.class)
+                .hasMessage("La subasta ya fue iniciada");
+        assertThat(s.getHoraInicio()).isEqualTo(horaOriginal);
+    }
+
+    @Test
+    @DisplayName("Sin reglas configuradas no hay precio: pedirlo es un conflicto explícito")
+    void precioActualSinReglas() {
+        Subasta s = programada();
+
+        assertThatThrownBy(s::precioActualOBase)
+                .isInstanceOf(ReglaDeNegocioException.class)
+                .hasMessage("La subasta no tiene reglas de puja configuradas");
+        assertThatThrownBy(s::siguienteMinimo)
+                .isInstanceOf(ReglaDeNegocioException.class)
+                .hasMessage("La subasta no tiene reglas de puja configuradas");
+    }
 }
