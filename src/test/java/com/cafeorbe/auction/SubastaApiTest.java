@@ -546,6 +546,8 @@ class SubastaApiTest {
         assertThat(cerrada.get("ganadorId").asText()).isEqualTo(ANA.toString());
         assertThat(cerrada.get("ganadorNombre").asText()).isEqualTo("Ana");
         assertThat(cerrada.get("montoFinal").asLong()).isEqualTo(110);
+        // HU-24: el cierre dice a quién hay que abonarle la venta.
+        assertThat(cerrada.get("subastadorId").asText()).isEqualTo(LUIS.toString());
         // Cerrar otra vez no hace nada: un solo evento por subasta.
         assertThat(cierre.cerrarVencidas(Instant.now().plus(12, ChronoUnit.MINUTES))).isZero();
         assertThat(tiposEnOutbox().stream().filter(Eventos.SUBASTA_CERRADA::equals)).hasSize(1);
