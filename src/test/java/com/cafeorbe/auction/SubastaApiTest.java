@@ -58,6 +58,8 @@ class SubastaApiTest {
     @Autowired PujaRepository pujas;
     @Autowired OutboxRepository outbox;
     @Autowired OutboxPublisher publicador;
+    @Autowired com.cafeorbe.auction.application.CierreDeSubastas cierre;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     @MockitoBean RabbitTemplate rabbit;
     @MockitoBean WalletClient wallet;
 
@@ -470,6 +472,144 @@ class SubastaApiTest {
         Mockito.reset(rabbit);
         assertThat(publicador.publicarPendientes()).isEqualTo(1);
         assertThat(outbox.countByPublicadoEnIsNull()).isZero();
+    }
+
+    // ── Sprint 2 ───────────────────────────────────────────────────────────
+
+    /** Datos del último evento de un tipo guardado en la outbox. */
+    private JsonNode datosDelEvento(String tipo) throws Exception {
+        var evento = outbox.findAll().stream().filter(o -> o.getTipo().equals(tipo)).reduce((a, b) -> b).orElseThrow();
+        return json.readTree(evento.getPayload()).get("datos");
+    }
+
+    private void pujar(MockHttpServletRequestBuilder quien, long monto) throws Exception {
+        mvc.perform(quien.content("{\"monto\":" + monto + "}")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("HU-17 · El detalle entrega la hora del servidor, la hora de fin y el tiempo restante")
+    void tiempoDelServidor() throws Exception {
+        String id = subastaEnCurso();
+
+        MvcResult res = mvc.perform(ana(get("/api/subastas/" + id))).andExpect(status().isOk()).andReturn();
+        JsonNode d = json.readTree(res.getResponse().getContentAsString());
+
+        assertThat(d.get("horaServidor").asText()).isNotBlank();
+        assertThat(d.get("segundosRestantes").asLong()).isBetween(590L, 600L);
+        assertThat(Instant.parse(d.get("horaFin").asText())).isAfter(Instant.parse(d.get("horaServidor").asText()));
+        // Una subasta que no está en curso no tiene tiempo restante.
+        String programada = crearSubasta("Aún sin iniciar");
+        mvc.perform(ana(get("/api/subastas/" + programada))).andExpect(jsonPath("$.segundosRestantes").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("HU-18 · Una puja válida en la ventana final extiende el tiempo 30 s y deja TiempoExtendido en la outbox")
+    void antiSniping() throws Exception {
+        String id = subastaEnCurso();
+        // Se adelanta la hora de fin para que queden 15 s: la subasta mínima dura un minuto.
+        Instant fin = Instant.now().plusSeconds(15).truncatedTo(ChronoUnit.MILLIS);
+        jdbc.update("update subasta set hora_fin = ? where id = ?", java.sql.Timestamp.from(fin), UUID.fromString(id));
+
+        pujar(ana(post("/api/subastas/" + id + "/pujas")), 110);
+
+        assertThat(tiposEnOutbox()).containsSubsequence(Eventos.PUJA_ACEPTADA, Eventos.TIEMPO_EXTENDIDO);
+        JsonNode extension = datosDelEvento(Eventos.TIEMPO_EXTENDIDO);
+        assertThat(extension.get("segundosExtendidos").asInt()).isEqualTo(30);
+        assertThat(extension.get("extension").asInt()).isEqualTo(1);
+        assertThat(Instant.parse(extension.get("horaFin").asText())).isEqualTo(fin.plusSeconds(30));
+        mvc.perform(ana(get("/api/subastas/" + id))).andExpect(jsonPath("$.extensiones").value(1));
+    }
+
+    @Test
+    @DisplayName("HU-18 · Una puja lejos del final no extiende el tiempo")
+    void sinExtensionLejosDelFinal() throws Exception {
+        String id = subastaEnCurso();
+        pujar(ana(post("/api/subastas/" + id + "/pujas")), 110);
+        assertThat(tiposEnOutbox()).doesNotContain(Eventos.TIEMPO_EXTENDIDO);
+    }
+
+    @Test
+    @DisplayName("HU-19 · Cierre con ganador: Finalizada, SubastaCerrada con el ganador y las pujas tardías se rechazan")
+    void cierreConGanador() throws Exception {
+        String id = subastaEnCurso();
+        pujar(ana(post("/api/subastas/" + id + "/pujas")), 110);
+
+        // Mientras no venza el tiempo, el cierre no toca la subasta.
+        assertThat(cierre.cerrarVencidas(Instant.now())).isZero();
+        mvc.perform(ana(get("/api/subastas/" + id))).andExpect(jsonPath("$.estado").value("EN_CURSO"));
+
+        assertThat(cierre.cerrarVencidas(Instant.now().plus(11, ChronoUnit.MINUTES))).isEqualTo(1);
+
+        mvc.perform(ana(get("/api/subastas/" + id))).andExpect(jsonPath("$.estado").value("FINALIZADA"));
+        JsonNode cerrada = datosDelEvento(Eventos.SUBASTA_CERRADA);
+        assertThat(cerrada.get("estado").asText()).isEqualTo("FINALIZADA");
+        assertThat(cerrada.get("ganadorId").asText()).isEqualTo(ANA.toString());
+        assertThat(cerrada.get("ganadorNombre").asText()).isEqualTo("Ana");
+        assertThat(cerrada.get("montoFinal").asLong()).isEqualTo(110);
+        // Cerrar otra vez no hace nada: un solo evento por subasta.
+        assertThat(cierre.cerrarVencidas(Instant.now().plus(12, ChronoUnit.MINUTES))).isZero();
+        assertThat(tiposEnOutbox().stream().filter(Eventos.SUBASTA_CERRADA::equals)).hasSize(1);
+
+        when(wallet.saldoDe(BRUNO)).thenReturn(OptionalLong.of(500));
+        mvc.perform(bruno(post("/api/subastas/" + id + "/pujas")).content("{\"monto\":120}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.motivo").value("SUBASTA_FINALIZADA"))
+                .andExpect(jsonPath("$.mensaje").value("La subasta ya finalizó"));
+    }
+
+    @Test
+    @DisplayName("HU-19 · Cierre sin pujas: queda Desierta y el evento no trae ganador")
+    void cierreSinPujas() throws Exception {
+        String id = subastaEnCurso();
+
+        assertThat(cierre.cerrarVencidas(Instant.now().plus(11, ChronoUnit.MINUTES))).isEqualTo(1);
+
+        mvc.perform(ana(get("/api/subastas/" + id))).andExpect(jsonPath("$.estado").value("DESIERTA"));
+        JsonNode cerrada = datosDelEvento(Eventos.SUBASTA_CERRADA);
+        assertThat(cerrada.get("estado").asText()).isEqualTo("DESIERTA");
+        assertThat(cerrada.get("ganadorId").isNull()).isTrue();
+        assertThat(cerrada.get("montoFinal").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("HU-22 · Resultados: lote, ganador, monto final, cantidad de pujas e historial, iguales para ambos roles")
+    void resultados() throws Exception {
+        String id = subastaEnCurso();
+        when(wallet.saldoDe(BRUNO)).thenReturn(OptionalLong.of(500));
+        pujar(ana(post("/api/subastas/" + id + "/pujas")), 110);
+        pujar(bruno(post("/api/subastas/" + id + "/pujas")), 120);
+
+        // Antes del cierre todavía no hay resultados.
+        mvc.perform(ana(get("/api/subastas/" + id + "/resultados"))).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.mensaje").value("La subasta aún no ha finalizado"));
+
+        cierre.cerrarVencidas(Instant.now().plus(11, ChronoUnit.MINUTES));
+
+        for (var quien : List.of(ana(get("/api/subastas/" + id + "/resultados")), luis(get("/api/subastas/" + id + "/resultados")))) {
+            mvc.perform(quien).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.nombre").value("Lote en vivo"))
+                    .andExpect(jsonPath("$.estado").value("FINALIZADA"))
+                    .andExpect(jsonPath("$.ganador.nombre").value("Bruno"))
+                    .andExpect(jsonPath("$.montoFinal").value(120))
+                    .andExpect(jsonPath("$.cantidadPujas").value(2))
+                    .andExpect(jsonPath("$.ultimasPujas.length()").value(2))
+                    .andExpect(jsonPath("$.ultimasPujas[0].monto").value(120))
+                    .andExpect(jsonPath("$.ultimasPujas[0].creadaEn").isNotEmpty());
+        }
+        mvc.perform(ana(get("/api/subastas/" + UUID.randomUUID() + "/resultados"))).andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("HU-22 · Resultados de una subasta desierta: sin ganador ni monto final")
+    void resultadosDesierta() throws Exception {
+        String id = subastaEnCurso();
+        cierre.cerrarVencidas(Instant.now().plus(11, ChronoUnit.MINUTES));
+
+        mvc.perform(ana(get("/api/subastas/" + id + "/resultados"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.estado").value("DESIERTA"))
+                .andExpect(jsonPath("$.ganador").doesNotExist())
+                .andExpect(jsonPath("$.montoFinal").doesNotExist())
+                .andExpect(jsonPath("$.cantidadPujas").value(0));
     }
 
     // ── Hallazgo 2: un decimal en un campo entero ya no se trunca en silencio ──

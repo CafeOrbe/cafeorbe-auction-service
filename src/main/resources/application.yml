@@ -34,6 +34,15 @@ cafeorbe:
   outbox:
     scheduler: true
     intervalo-ms: 200
+  subasta:
+    anti-sniping:
+      # HU-18: una puja válida cuando falta esta ventana o menos extiende el tiempo esa misma cantidad
+      ventana-segundos: ${ANTISNIPING_VENTANA_SEGUNDOS:30}
+      max-extensiones: ${ANTISNIPING_MAX_EXTENSIONES:3}
+  cierre:
+    # HU-19: el servidor cierra las subastas vencidas, aunque nadie tenga la sala abierta
+    scheduler: true
+    intervalo-ms: 1000
 
 management:
   endpoints:

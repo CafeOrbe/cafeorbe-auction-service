@@ -11,3 +11,5 @@ spring:
 cafeorbe:
   outbox:
     scheduler: false
+  cierre:
+    scheduler: false
