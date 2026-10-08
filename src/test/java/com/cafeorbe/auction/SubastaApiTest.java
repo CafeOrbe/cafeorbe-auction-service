@@ -611,4 +611,110 @@ class SubastaApiTest {
                 .andExpect(jsonPath("$.montoFinal").doesNotExist())
                 .andExpect(jsonPath("$.cantidadPujas").value(0));
     }
+
+    // ── Hallazgo 2: un decimal en un campo entero ya no se trunca en silencio ──
+
+    @Test
+    @DisplayName("Hallazgo 2 · Un decimal donde va un entero se rechaza y señala el campo, no se trunca")
+    void decimalEnCampoEntero() throws Exception {
+        mvc.perform(ana(post("/api/subastas/" + UUID.randomUUID() + "/pujas")).content("{\"monto\":1.5}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.mensaje").value("Debe ser un número entero"))
+                .andExpect(jsonPath("$.campos.monto").value("Debe ser un número entero"));
+    }
+
+    @Test
+    @DisplayName("Hallazgo 2 · Un texto donde va un entero también se rechaza con el campo señalado")
+    void textoEnCampoEntero() throws Exception {
+        mvc.perform(ana(post("/api/subastas/" + UUID.randomUUID() + "/pujas")).content("{\"monto\":\"mucho\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos.monto").value("Debe ser un número entero"));
+    }
+
+    @Test
+    @DisplayName("Un cuerpo ilegible sin campo localizable responde 400 genérico, no filtra internals")
+    void cuerpoIlegible() throws Exception {
+        mvc.perform(ana(post("/api/subastas/" + UUID.randomUUID() + "/pujas")).content("esto no es json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.mensaje").value("La solicitud no es válida"))
+                .andExpect(jsonPath("$.campos").isEmpty());
+    }
+
+    @Test
+    @DisplayName("Un id de subasta que no es UUID en la ruta responde 400 con el formato uniforme")
+    void idNoEsUuidEnLaRuta() throws Exception {
+        mvc.perform(luis(get("/api/subastas/no-es-uuid")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.mensaje").value("La solicitud no es válida"));
+    }
+
+    // ── HU-04 · Listar y filtrar, y 404s de consulta ───────────────────────
+
+    @Test
+    @DisplayName("HU-04 · Sin filtro devuelve todas las subastas, y una sin reglas no inventa un precio")
+    void listarSinFiltroDevuelveTodas() throws Exception {
+        crearSubasta("Lote sin configurar");
+        subastaEnCurso();
+
+        var cuerpo = json.readTree(mvc.perform(ana(get("/api/subastas")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+
+        assertThat(cuerpo).hasSize(2);
+        assertThat(cuerpo.findValuesAsText("estado")).containsExactlyInAnyOrder("PROGRAMADA", "EN_CURSO");
+        for (var resumen : cuerpo) {
+            if ("PROGRAMADA".equals(resumen.get("estado").asText())) {
+                assertThat(resumen.get("precioActual").isNull()).isTrue();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("HU-04 · Un filtro de estado en blanco o ausente equivale a no filtrar")
+    void filtroEnBlancoEquivaleAFiltrarTodo() throws Exception {
+        crearSubasta("Lote sin configurar");
+        subastaEnCurso();
+
+        mvc.perform(ana(get("/api/subastas").param("estado", "   ")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
+    }
+
+    @Test
+    @DisplayName("HU-04 · El filtro por estado devuelve solo las subastas en ese estado")
+    void filtroPorEstado() throws Exception {
+        crearSubasta("Lote sin configurar");
+        subastaEnCurso();
+
+        mvc.perform(ana(get("/api/subastas").param("estado", "en_curso")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].estado").value("EN_CURSO"));
+    }
+
+    @Test
+    @DisplayName("Un estado que no existe se rechaza con 400, no se ignora en silencio")
+    void estadoInvalido() throws Exception {
+        mvc.perform(ana(get("/api/subastas").param("estado", "inventado")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("El detalle de una subasta inexistente responde 404 con el mensaje uniforme")
+    void detalleInexistente() throws Exception {
+        mvc.perform(ana(get("/api/subastas/" + UUID.randomUUID())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.mensaje").value("La subasta no existe"));
+    }
+
+    @Test
+    @DisplayName("El historial de una subasta inexistente responde 404, no una lista vacía")
+    void historialDeSubastaInexistente() throws Exception {
+        mvc.perform(ana(get("/api/subastas/" + UUID.randomUUID() + "/pujas")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.mensaje").value("La subasta no existe"));
+    }
 }
