@@ -45,7 +45,9 @@ public class CierreDeSubastas {
                     conGanador ? subasta.getLiderId() : null,
                     conGanador ? subasta.getLiderNombre() : null,
                     conGanador ? subasta.precioActualOBase() : null,
-                    subasta.getCantidadPujas(), ahora));
+                    subasta.getCantidadPujas(), ahora,
+                    // HU-24: wallet abona al Subastador lo que cobra al ganador.
+                    subasta.getSubastadorId()));
             log.info("Subasta {} cerrada: {} ({} pujas)", subasta.getId(), subasta.getEstado(), subasta.getCantidadPujas());
         }
         return vencidas.size();
