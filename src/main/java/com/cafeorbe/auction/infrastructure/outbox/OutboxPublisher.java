@@ -1,11 +1,13 @@
 package com.cafeorbe.auction.infrastructure.outbox;
 
+import com.cafeorbe.auction.seguridad.FiltroDeCorrelacion;
 import com.cafeorbe.contracts.Eventos;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageBuilder;
 import org.springframework.amqp.core.MessageProperties;
@@ -65,9 +67,7 @@ public class OutboxPublisher {
                 rabbit.send(Eventos.EXCHANGE, evento.getTipo(), mensaje);
                 evento.marcarPublicado(reloj.instant());
                 publicados++;
-                log.atInfo().addKeyValue("correlationId", evento.getCorrelationId())
-                        .addKeyValue("secuencia", evento.getId()).addKeyValue("evento", evento.getTipo())
-                        .log("Evento {} publicado en el broker", evento.getTipo());
+                registrarPublicado(evento);
             } catch (RuntimeException e) {
                 // Se conserva el orden: no se publican eventos posteriores si este falló.
                 log.warn("No se pudo publicar el evento {} ({}); se reintentará: {}", evento.getEventId(),
@@ -76,5 +76,27 @@ public class OutboxPublisher {
             }
         }
         return publicados;
+    }
+
+    /**
+     * OBS-01: el log lleva el correlationId del evento. Va por el MDC, no con addKeyValue: si el hilo ya tuviera
+     * uno en el MDC (el cierre automático comparte el programador y usa {@code cierre-<id>}), el campo saldría
+     * repetido, el escritor JSON fallaría y la línea se perdería. Se restaura el valor anterior al terminar.
+     */
+    private static void registrarPublicado(OutboxEvento evento) {
+        String anterior = MDC.get(FiltroDeCorrelacion.MDC_CLAVE);
+        if (evento.getCorrelationId() != null) {
+            MDC.put(FiltroDeCorrelacion.MDC_CLAVE, evento.getCorrelationId());
+        }
+        try {
+            log.atInfo().addKeyValue("secuencia", evento.getId()).addKeyValue("evento", evento.getTipo())
+                    .log("Evento {} publicado en el broker", evento.getTipo());
+        } finally {
+            if (anterior == null) {
+                MDC.remove(FiltroDeCorrelacion.MDC_CLAVE);
+            } else {
+                MDC.put(FiltroDeCorrelacion.MDC_CLAVE, anterior);
+            }
+        }
     }
 }
