@@ -33,14 +33,27 @@ public class OutboxEvento {
     @Column(name = "publicado_en")
     private Instant publicadoEn;
 
+    /** OBS-01: correlationId de la petición que originó el evento; viaja al broker en la cabecera x-correlation-id. */
+    @Column(name = "correlation_id", updatable = false, length = 64)
+    private String correlationId;
+
     protected OutboxEvento() {
     }
 
     public OutboxEvento(UUID eventId, String tipo, String payload, Instant creadoEn) {
+        this(eventId, tipo, payload, creadoEn, null);
+    }
+
+    public OutboxEvento(UUID eventId, String tipo, String payload, Instant creadoEn, String correlationId) {
         this.eventId = eventId;
         this.tipo = tipo;
         this.payload = payload;
         this.creadoEn = creadoEn;
+        this.correlationId = correlationId;
+    }
+
+    public String getCorrelationId() {
+        return correlationId;
     }
 
     public void marcarPublicado(Instant cuando) {

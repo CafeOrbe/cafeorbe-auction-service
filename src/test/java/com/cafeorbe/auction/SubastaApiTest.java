@@ -75,7 +75,8 @@ class SubastaApiTest {
     // ── utilidades ─────────────────────────────────────────────────────────
 
     private static MockHttpServletRequestBuilder como(MockHttpServletRequestBuilder req, UUID id, String nombre, String rol) {
-        return req.header(Cabeceras.USUARIO_ID, id.toString()).header(Cabeceras.USUARIO_NOMBRE, nombre)
+        return req.header("X-Internal-Token", "credencial-de-prueba")
+                .header(Cabeceras.USUARIO_ID, id.toString()).header(Cabeceras.USUARIO_NOMBRE, nombre)
                 .header(Cabeceras.USUARIO_ROL, rol).contentType(MediaType.APPLICATION_JSON);
     }
 
@@ -160,7 +161,8 @@ class SubastaApiTest {
         mvc.perform(ana(post("/api/subastas"))
                         .content(crearSubastaConFecha("Lote", Instant.now().plus(1, ChronoUnit.DAYS))))
                 .andExpect(status().isForbidden());
-        mvc.perform(post("/api/subastas").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/subastas").header("X-Internal-Token", "credencial-de-prueba")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content(crearSubastaConFecha("Lote", Instant.now().plus(1, ChronoUnit.DAYS))))
                 .andExpect(status().isUnauthorized());
     }
@@ -548,6 +550,11 @@ class SubastaApiTest {
         assertThat(cerrada.get("montoFinal").asLong()).isEqualTo(110);
         // HU-24: el cierre dice a quién hay que abonarle la venta.
         assertThat(cerrada.get("subastadorId").asText()).isEqualTo(LUIS.toString());
+        // OBS-01: el cierre automático no nace de una petición; su correlationId se busca por la subasta.
+        var eventoDeCierre = outbox.findAll().stream().filter(o -> o.getTipo().equals(Eventos.SUBASTA_CERRADA))
+                .findFirst().orElseThrow();
+        assertThat(eventoDeCierre.getCorrelationId()).isEqualTo("cierre-" + id);
+        assertThat(org.slf4j.MDC.get("correlationId")).isNull();
         // Cerrar otra vez no hace nada: un solo evento por subasta.
         assertThat(cierre.cerrarVencidas(Instant.now().plus(12, ChronoUnit.MINUTES))).isZero();
         assertThat(tiposEnOutbox().stream().filter(Eventos.SUBASTA_CERRADA::equals)).hasSize(1);

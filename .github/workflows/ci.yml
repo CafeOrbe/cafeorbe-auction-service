@@ -36,10 +36,15 @@ jobs:
       - name: Build and test
         run: mvn -B verify
 
-      - name: SonarQube scan
+      # MAN-01: el análisis espera el Quality Gate de SonarQube Cloud (máx. 10 min). Si no pasa, el job queda en
+      # rojo y, con la protección de rama de main, el pull request no se puede integrar.
+      - name: SonarQube scan y Quality Gate
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+        run: >-
+          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+          -Dsonar.qualitygate.wait=true
+          -Dsonar.qualitygate.timeout=600
 
   build-push:
     needs: ci
@@ -89,10 +94,19 @@ jobs:
       - name: Deploy QA Container App
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          # Sprint 2 (SEG-02): credencial interna, la misma en los 6 servicios.
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
+          # OBS-01: métricas por OTLP hacia Grafana Cloud (apagado si no se define la variable).
+          OTLP_METRICS_ENABLED: ${{ vars.OTLP_METRICS_ENABLED || 'false' }}
+          OTLP_METRICS_URL: ${{ vars.OTLP_METRICS_URL || 'http://localhost:4318/v1/metrics' }}
+          OTLP_METRICS_AUTH: ${{ secrets.OTLP_METRICS_AUTH }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           RABBIT_PASSWORD: ${{ secrets.RABBIT_PASSWORD }}
         run: |
           set -euo pipefail
+
+          # Sin estos valores el servicio arranca, pero QA queda roto: mejor fallar aquí con un mensaje claro.
+          : "${INTERNAL_TOKEN:?Falta el secreto INTERNAL_TOKEN en GitHub (el mismo en los 6 repositorios)}"
 
           APP_NAME="auction-service"
           RESOURCE_GROUP="cafeorbe-org"
@@ -117,6 +131,10 @@ jobs:
             --min-replicas 1 \
             --set-env-vars \
               "JWT_SECRET=$JWT_SECRET" \
+              "INTERNAL_TOKEN=$INTERNAL_TOKEN" \
+              "OTLP_METRICS_ENABLED=$OTLP_METRICS_ENABLED" \
+              "OTLP_METRICS_URL=$OTLP_METRICS_URL" \
+              "OTLP_METRICS_AUTH=$OTLP_METRICS_AUTH" \
               "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/auction_db" \
               "DB_USER=cafeorbe" \
               "DB_PASSWORD=$DB_PASSWORD" \
@@ -130,34 +148,43 @@ jobs:
 
 
       - name: Smoke test
+        env:
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
         run: |
-          # Petición real a través del api-gateway, como lo usa el frontend: comprueba el servicio y su enrutamiento.
-          GW=$(az containerapp show \
-            --name api-gateway \
+          # El acceso por nombre queda apagado (SEG-01) y en CI no hay una cuenta de Google, así que la prueba llama
+          # al servicio directo, como lo hace el api-gateway: con la credencial interna (SEG-02) debe responder 200,
+          # y sin ella 403. Así cada despliegue comprueba además que INTERNAL_TOKEN coincide con el del gateway.
+          SVC=$(az containerapp show \
+            --name auction-service \
             --resource-group cafeorbe-org \
             --query properties.configuration.ingress.fqdn \
             --output tsv)
+          RUTA='/api/subastas?estado=programada'
 
           for i in $(seq 1 12); do
-            # Sesión del usuario fijo "smoke-ci": se crea una sola vez y se reutiliza en cada despliegue.
-            TOKEN=$(curl --silent --max-time 10 \
-              --request POST "https://$GW/api/sesion" \
-              --header 'Content-Type: application/json' \
-              --data '{"nombre":"smoke-ci","rol":"COMPRADOR"}' \
-              | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' || true)
             CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
-              --header "Authorization: Bearer $TOKEN" \
-              "https://$GW/api/subastas?estado=programada" || true)
+              --header "X-Internal-Token: $INTERNAL_TOKEN" \
+              --header 'X-User-Id: 5e1f0c1a-0000-4000-8000-00000000c1c1' \
+              --header 'X-User-Name: smoke-ci' \
+              --header 'X-User-Role: COMPRADOR' \
+              "https://$SVC$RUTA" || true)
             if [ "$CODE" = "200" ]; then
-              echo "auction-service responde por el gateway en el intento $i"
+              SIN=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
+                --header 'X-User-Id: 5e1f0c1a-0000-4000-8000-00000000c1c1' \
+                --header 'X-User-Role: COMPRADOR' \
+                "https://$SVC$RUTA" || true)
+              if [ "$SIN" != "403" ]; then
+                echo "auction-service aceptó una petición sin credencial interna (HTTP $SIN): SEG-02 no se cumple"
+                exit 1
+              fi
+              echo "auction-service responde con la credencial interna y rechaza sin ella (intento $i)"
               exit 0
             fi
             echo "Intento $i: HTTP $CODE, esperando 15s..."
             sleep 15
           done
-          echo "auction-service no respondió por el gateway tras 12 intentos"
+          echo "auction-service no respondió 200 con la credencial interna tras 12 intentos"
           exit 1
-
   deploy-prod:
     needs: build-push
     if: startsWith(github.ref, 'refs/tags/v')
@@ -171,10 +198,19 @@ jobs:
       - name: Deploy PROD Container App
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          # Sprint 2 (SEG-02): credencial interna, la misma en los 6 servicios.
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
+          # OBS-01: métricas por OTLP hacia Grafana Cloud (apagado si no se define la variable).
+          OTLP_METRICS_ENABLED: ${{ vars.OTLP_METRICS_ENABLED || 'false' }}
+          OTLP_METRICS_URL: ${{ vars.OTLP_METRICS_URL || 'http://localhost:4318/v1/metrics' }}
+          OTLP_METRICS_AUTH: ${{ secrets.OTLP_METRICS_AUTH }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           RABBIT_PASSWORD: ${{ secrets.RABBIT_PASSWORD }}
         run: |
           set -euo pipefail
+
+          # Sin estos valores el servicio arranca, pero QA queda roto: mejor fallar aquí con un mensaje claro.
+          : "${INTERNAL_TOKEN:?Falta el secreto INTERNAL_TOKEN en GitHub (el mismo en los 6 repositorios)}"
 
           APP_NAME="auction-service-prod"
           RESOURCE_GROUP="cafeorbe-org"
@@ -199,6 +235,10 @@ jobs:
             --min-replicas 1 \
             --set-env-vars \
               "JWT_SECRET=$JWT_SECRET" \
+              "INTERNAL_TOKEN=$INTERNAL_TOKEN" \
+              "OTLP_METRICS_ENABLED=$OTLP_METRICS_ENABLED" \
+              "OTLP_METRICS_URL=$OTLP_METRICS_URL" \
+              "OTLP_METRICS_AUTH=$OTLP_METRICS_AUTH" \
               "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/auction_db" \
               "DB_USER=cafeorbe" \
               "DB_PASSWORD=$DB_PASSWORD" \
@@ -212,30 +252,40 @@ jobs:
 
 
       - name: Smoke test
+        env:
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
         run: |
-          # Petición real a través del api-gateway, como lo usa el frontend: comprueba el servicio y su enrutamiento.
-          GW=$(az containerapp show \
-            --name api-gateway-prod \
+          # El acceso por nombre queda apagado (SEG-01) y en CI no hay una cuenta de Google, así que la prueba llama
+          # al servicio directo, como lo hace el api-gateway: con la credencial interna (SEG-02) debe responder 200,
+          # y sin ella 403. Así cada despliegue comprueba además que INTERNAL_TOKEN coincide con el del gateway.
+          SVC=$(az containerapp show \
+            --name auction-service-prod \
             --resource-group cafeorbe-org \
             --query properties.configuration.ingress.fqdn \
             --output tsv)
+          RUTA='/api/subastas?estado=programada'
 
           for i in $(seq 1 12); do
-            # Sesión del usuario fijo "smoke-ci": se crea una sola vez y se reutiliza en cada despliegue.
-            TOKEN=$(curl --silent --max-time 10 \
-              --request POST "https://$GW/api/sesion" \
-              --header 'Content-Type: application/json' \
-              --data '{"nombre":"smoke-ci","rol":"COMPRADOR"}' \
-              | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' || true)
             CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
-              --header "Authorization: Bearer $TOKEN" \
-              "https://$GW/api/subastas?estado=programada" || true)
+              --header "X-Internal-Token: $INTERNAL_TOKEN" \
+              --header 'X-User-Id: 5e1f0c1a-0000-4000-8000-00000000c1c1' \
+              --header 'X-User-Name: smoke-ci' \
+              --header 'X-User-Role: COMPRADOR' \
+              "https://$SVC$RUTA" || true)
             if [ "$CODE" = "200" ]; then
-              echo "auction-service responde por el gateway en el intento $i"
+              SIN=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
+                --header 'X-User-Id: 5e1f0c1a-0000-4000-8000-00000000c1c1' \
+                --header 'X-User-Role: COMPRADOR' \
+                "https://$SVC$RUTA" || true)
+              if [ "$SIN" != "403" ]; then
+                echo "auction-service aceptó una petición sin credencial interna (HTTP $SIN): SEG-02 no se cumple"
+                exit 1
+              fi
+              echo "auction-service responde con la credencial interna y rechaza sin ella (intento $i)"
               exit 0
             fi
             echo "Intento $i: HTTP $CODE, esperando 15s..."
             sleep 15
           done
-          echo "auction-service no respondió por el gateway tras 12 intentos"
+          echo "auction-service no respondió 200 con la credencial interna tras 12 intentos"
           exit 1
