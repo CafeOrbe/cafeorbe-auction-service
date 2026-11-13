@@ -1,6 +1,9 @@
 package com.cafeorbe.auction.infrastructure;
 
+import com.cafeorbe.auction.seguridad.FiltroDeCorrelacion;
+import com.cafeorbe.auction.seguridad.FiltroDeSeguridadInterna;
 import com.cafeorbe.contracts.dto.SaldoDto;
+import org.slf4j.MDC;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,11 +25,23 @@ public class WalletClient {
 
     public WalletClient(@Value("${cafeorbe.wallet.url}") String url,
                         @Value("${cafeorbe.wallet.connect-timeout-ms}") int conexionMs,
-                        @Value("${cafeorbe.wallet.read-timeout-ms}") int lecturaMs) {
+                        @Value("${cafeorbe.wallet.read-timeout-ms}") int lecturaMs,
+                        @Value("${cafeorbe.seguridad.credencial-interna}") String credencial) {
         var fabrica = new SimpleClientHttpRequestFactory();
         fabrica.setConnectTimeout(conexionMs);
         fabrica.setReadTimeout(lecturaMs);
-        this.cliente = RestClient.builder().baseUrl(url).requestFactory(fabrica).build();
+        // SEG-02: wallet exige la credencial interna en /internal/**.
+        this.cliente = RestClient.builder().baseUrl(url).requestFactory(fabrica)
+                .defaultHeader(FiltroDeSeguridadInterna.CABECERA, credencial)
+                .requestInterceptor((peticion, cuerpo, ejecucion) -> {
+                    // OBS-01: la consulta de saldo lleva el correlationId de la puja.
+                    String correlacion = MDC.get(FiltroDeCorrelacion.MDC_CLAVE);
+                    if (correlacion != null) {
+                        peticion.getHeaders().set(FiltroDeCorrelacion.CABECERA, correlacion);
+                    }
+                    return ejecucion.execute(peticion, cuerpo);
+                })
+                .build();
     }
 
     /** Saldo del usuario, o vacío si wallet no respondió (la puja se rechaza sin cambiar nada). */

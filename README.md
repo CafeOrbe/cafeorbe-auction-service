@@ -229,7 +229,7 @@ flowchart LR
         A --> C[("outbox<br/>publicado_en = null")]
     end
     C --> D["OutboxScheduler<br/>cada 200 ms"]
-    D --> E["OutboxPublisher<br/>lote de 50, SKIP LOCKED"]
+    D --> E["OutboxPublisher<br/>lote de 50, FOR UPDATE"]
     E -- "envío correcto" --> F{{"RabbitMQ"}}
     E -- "marca publicado_en" --> C
     E -. "fallo: se detiene y reintenta<br/>en la siguiente pasada" .-> D
@@ -314,7 +314,7 @@ El diagrama muestra las columnas principales; el esquema completo está en `db/m
 | **Consistencia** | Reglas en el agregado, una transacción por comando, bloqueo de fila al pujar |
 | **Rendimiento** | Una puja se difunde a la sala en menos de 1 s (medido en vivo: ~200 ms). Índices por estado y fecha, y por subasta y monto |
 | **Resiliencia** | Si wallet no responde, la puja se rechaza sin cambiar nada. Si RabbitMQ cae, los eventos esperan en la outbox |
-| **Escalabilidad** | Sin estado en memoria. Varias instancias pueden publicar la outbox a la vez gracias a `SKIP LOCKED` |
+| **Escalabilidad** | Sin estado en memoria. Con varias instancias, la outbox la publica una por vez (`FOR UPDATE` que espera, sin `SKIP LOCKED`): los eventos salen en orden de secuencia y ninguno se publica dos veces. El cierre sí usa `SKIP LOCKED`: cada instancia cierra subastas distintas |
 | **Seguridad** | Rol y propiedad se verifican en cada comando. La identidad se toma de cabeceras que solo debe poder fijar el gateway |
 | **Trazabilidad** | Cada puja aceptada queda con usuario, monto y hora; cada evento lleva un `eventId` único |
 

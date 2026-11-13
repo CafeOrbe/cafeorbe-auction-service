@@ -1,6 +1,8 @@
 package com.cafeorbe.auction.infrastructure.outbox;
 
+import com.cafeorbe.auction.seguridad.FiltroDeCorrelacion;
 import com.cafeorbe.contracts.EventoEnvelope;
+import org.slf4j.MDC;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -29,7 +31,7 @@ public class OutboxWriter {
         var envoltorio = new EventoEnvelope<>(UUID.randomUUID(), tipo, 1, reloj.instant(), datos);
         try {
             outbox.save(new OutboxEvento(envoltorio.eventId(), tipo, json.writeValueAsString(envoltorio),
-                    envoltorio.ocurridoEn()));
+                    envoltorio.ocurridoEn(), MDC.get(FiltroDeCorrelacion.MDC_CLAVE)));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("No se pudo serializar el evento " + tipo, e);
         }

@@ -57,11 +57,11 @@ class WalletClientTest {
     }
 
     private static WalletClient cliente() {
-        return new WalletClient("http://localhost:" + wallet.getAddress().getPort(), 500, 500);
+        return new WalletClient("http://localhost:" + wallet.getAddress().getPort(), 500, 500, "credencial-de-prueba");
     }
 
     private static WalletClient caido() {
-        return new WalletClient("http://localhost:" + puertoCaido, 300, 300);
+        return new WalletClient("http://localhost:" + puertoCaido, 300, 300, "credencial-de-prueba");
     }
 
     @Test

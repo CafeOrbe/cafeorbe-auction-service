@@ -1,6 +1,9 @@
 package com.cafeorbe.auction.api;
 
 import com.cafeorbe.auction.domain.ReglaDeNegocioException;
+import com.cafeorbe.auction.seguridad.Auditoria;
+import com.cafeorbe.contracts.Cabeceras;
+import jakarta.servlet.http.HttpServletRequest;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import org.springframework.http.HttpStatus;
@@ -25,8 +28,19 @@ public class ManejadorDeErrores {
         return ResponseEntity.status(estado).body(new ApiError(estado.value(), mensaje, campos));
     }
 
+    private final Auditoria auditoria;
+
+    public ManejadorDeErrores(Auditoria auditoria) {
+        this.auditoria = auditoria;
+    }
+
     @ExceptionHandler(ReglaDeNegocioException.class)
-    public ResponseEntity<ApiError> reglaDeNegocio(ReglaDeNegocioException e) {
+    public ResponseEntity<ApiError> reglaDeNegocio(ReglaDeNegocioException e, HttpServletRequest peticion) {
+        if (e.getTipo() == ReglaDeNegocioException.Tipo.PROHIBIDO) {
+            // SEG-02: rol incorrecto o subasta ajena. Queda registrado quién lo intentó y sobre qué ruta.
+            auditoria.rechazo("acceso_prohibido", "rol_o_propietario", peticion.getHeader(Cabeceras.USUARIO_ID),
+                    peticion);
+        }
         HttpStatus estado = switch (e.getTipo()) {
             case VALIDACION -> HttpStatus.BAD_REQUEST;
             case PROHIBIDO -> HttpStatus.FORBIDDEN;

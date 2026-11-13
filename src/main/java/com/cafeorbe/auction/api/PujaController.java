@@ -19,8 +19,9 @@ public class PujaController {
      * Respuesta de una puja. Aceptada: HTTP 200. Rechazada: HTTP 422 con motivo tipificado y mensaje.
      * El resto de los conectados se entera por el evento PujaAceptada, no por esta respuesta.
      */
+    /** @param porEvento si es {@code false} no habrá evento PujaRechazada: quien reenvió la puja avisa (REN-01) */
     public record PujaRespuesta(boolean aceptada, UUID pujaId, long monto, Long siguienteMinimo,
-                                String motivo, String mensaje) {
+                                String motivo, String mensaje, boolean porEvento) {
     }
 
     private final RegistrarPujaService pujas;
@@ -36,10 +37,10 @@ public class PujaController {
         var registro = pujas.registrar(id, usuario, solicitud.monto());
         return switch (registro.resultado()) {
             case ResultadoPuja.Aceptada a -> ResponseEntity.ok(new PujaRespuesta(true, a.puja().getId(),
-                    a.puja().getMonto(), registro.siguienteMinimo(), null, null));
+                    a.puja().getMonto(), registro.siguienteMinimo(), null, null, true));
             case ResultadoPuja.Rechazada r -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
                     .body(new PujaRespuesta(false, null, r.montoIntentado(), registro.siguienteMinimo(),
-                            r.motivo().name(), r.motivo().mensaje()));
+                            r.motivo().name(), r.motivo().mensaje(), registro.porEvento()));
         };
     }
 }

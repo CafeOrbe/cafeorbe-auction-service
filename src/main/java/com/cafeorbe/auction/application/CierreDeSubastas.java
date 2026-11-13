@@ -38,18 +38,36 @@ public class CierreDeSubastas {
     public int cerrarVencidas(Instant ahora) {
         var vencidas = subastas.vencidas(ahora, PageRequest.of(0, TAMANO_LOTE));
         for (Subasta subasta : vencidas) {
-            subasta.cerrar(ahora);
-            boolean conGanador = subasta.getEstado() == EstadoSubasta.FINALIZADA;
-            outbox.registrar(Eventos.SUBASTA_CERRADA, new SubastaCerrada(subasta.getId(), subasta.getNombre(),
-                    subasta.getEstado().name(),
-                    conGanador ? subasta.getLiderId() : null,
-                    conGanador ? subasta.getLiderNombre() : null,
-                    conGanador ? subasta.precioActualOBase() : null,
-                    subasta.getCantidadPujas(), ahora,
-                    // HU-24: wallet abona al Subastador lo que cobra al ganador.
-                    subasta.getSubastadorId()));
-            log.info("Subasta {} cerrada: {} ({} pujas)", subasta.getId(), subasta.getEstado(), subasta.getCantidadPujas());
+            // OBS-01: el cierre automático no nace de una petición. Su correlationId es "cierre-{subasta}": viaja en
+            // SubastaCerrada, wallet lo usa en el cobro y en OrbesCobrados, y el realtime al difundirlo.
+            String anterior = org.slf4j.MDC.get(MDC_CORRELACION);
+            org.slf4j.MDC.put(MDC_CORRELACION, "cierre-" + subasta.getId());
+            try {
+                cerrar(subasta, ahora);
+            } finally {
+                if (anterior == null) {
+                    org.slf4j.MDC.remove(MDC_CORRELACION);
+                } else {
+                    org.slf4j.MDC.put(MDC_CORRELACION, anterior);
+                }
+            }
         }
         return vencidas.size();
+    }
+
+    private static final String MDC_CORRELACION = com.cafeorbe.auction.seguridad.FiltroDeCorrelacion.MDC_CLAVE;
+
+    private void cerrar(Subasta subasta, Instant ahora) {
+        subasta.cerrar(ahora);
+        boolean conGanador = subasta.getEstado() == EstadoSubasta.FINALIZADA;
+        outbox.registrar(Eventos.SUBASTA_CERRADA, new SubastaCerrada(subasta.getId(), subasta.getNombre(),
+                subasta.getEstado().name(),
+                conGanador ? subasta.getLiderId() : null,
+                conGanador ? subasta.getLiderNombre() : null,
+                conGanador ? subasta.precioActualOBase() : null,
+                subasta.getCantidadPujas(), ahora,
+                // HU-24: wallet abona al Subastador lo que cobra al ganador.
+                subasta.getSubastadorId()));
+        log.info("Subasta {} cerrada: {} ({} pujas)", subasta.getId(), subasta.getEstado(), subasta.getCantidadPujas());
     }
 }

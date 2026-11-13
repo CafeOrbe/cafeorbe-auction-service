@@ -1,7 +1,10 @@
 package com.cafeorbe.auction.infrastructure.outbox;
 
 import com.cafeorbe.contracts.Eventos;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageBuilder;
@@ -23,6 +26,8 @@ public class OutboxPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxPublisher.class);
     private static final int TAMANO_LOTE = 50;
+    public static final String CABECERA_SECUENCIA = "x-secuencia";
+    public static final String CABECERA_CORRELACION = "x-correlation-id";
 
     private final OutboxRepository outbox;
     private final RabbitTemplate rabbit;
@@ -32,6 +37,13 @@ public class OutboxPublisher {
         this.outbox = outbox;
         this.rabbit = rabbit;
         this.reloj = reloj;
+    }
+
+    /** OBS-01: eventos que esperan en la outbox; si crece, el broker o el publicador están atrasados. */
+    @Autowired
+    void registrarMetricas(MeterRegistry metricas) {
+        Gauge.builder("cafeorbe.outbox.pendientes", outbox, OutboxRepository::countByPublicadoEnIsNull)
+                .register(metricas);
     }
 
     /** @return cantidad de eventos publicados en esta pasada */
@@ -45,10 +57,17 @@ public class OutboxPublisher {
                         .setContentType(MessageProperties.CONTENT_TYPE_JSON)
                         .setContentEncoding(StandardCharsets.UTF_8.name())
                         .setMessageId(evento.getEventId().toString())
+                        // REN-01: número de secuencia del evento; el navegador descarta lo repetido o atrasado.
+                        .setHeader(CABECERA_SECUENCIA, evento.getId())
+                        // OBS-01: la puja se sigue por su correlationId también a través del broker.
+                        .setHeader(CABECERA_CORRELACION, evento.getCorrelationId())
                         .build();
                 rabbit.send(Eventos.EXCHANGE, evento.getTipo(), mensaje);
                 evento.marcarPublicado(reloj.instant());
                 publicados++;
+                log.atInfo().addKeyValue("correlationId", evento.getCorrelationId())
+                        .addKeyValue("secuencia", evento.getId()).addKeyValue("evento", evento.getTipo())
+                        .log("Evento {} publicado en el broker", evento.getTipo());
             } catch (RuntimeException e) {
                 // Se conserva el orden: no se publican eventos posteriores si este falló.
                 log.warn("No se pudo publicar el evento {} ({}); se reintentará: {}", evento.getEventId(),
