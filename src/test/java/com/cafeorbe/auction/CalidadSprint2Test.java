@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.amqp.core.Message;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -70,6 +71,7 @@ class CalidadSprint2Test {
         outbox.deleteAll();
         subastas.deleteAll();
         when(wallet.saldoDe(ANA)).thenReturn(OptionalLong.of(5_000));
+        BrokerDePrueba.confirmaTodo(rabbit);
     }
 
     private static MockHttpServletRequestBuilder como(MockHttpServletRequestBuilder req, UUID id, String rol) {
@@ -212,13 +214,13 @@ class CalidadSprint2Test {
 
         publicador.publicarPendientes();
         var mensaje = ArgumentCaptor.forClass(Message.class);
-        verify(rabbit).send(eq(Eventos.EXCHANGE), eq(Eventos.PUJA_ACEPTADA), mensaje.capture());
+        verify(rabbit).send(eq(Eventos.EXCHANGE), eq(Eventos.PUJA_ACEPTADA), mensaje.capture(), any(CorrelationData.class));
         var cabeceras = mensaje.getValue().getMessageProperties().getHeaders();
         assertThat(cabeceras).containsEntry("x-correlation-id", "puja-ana-0001")
                 .containsEntry("x-secuencia", aceptada.getId());
         // Las secuencias crecen en el orden en que ocurrieron los eventos de la subasta.
-        verify(rabbit).send(eq(Eventos.EXCHANGE), eq(Eventos.SUBASTA_INICIADA), any(Message.class));
-        verify(rabbit, never()).send(anyString(), eq(Eventos.PUJA_RECHAZADA), any(Message.class));
+        verify(rabbit).send(eq(Eventos.EXCHANGE), eq(Eventos.SUBASTA_INICIADA), any(Message.class), any(CorrelationData.class));
+        verify(rabbit, never()).send(anyString(), eq(Eventos.PUJA_RECHAZADA), any(Message.class), any(CorrelationData.class));
     }
 
     @Test

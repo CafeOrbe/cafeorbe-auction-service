@@ -40,6 +40,7 @@ class LogsJsonDeSeguridadTest {
     @Test
     @DisplayName("OBS-01 · El evento publicado lleva su correlationId aunque el hilo tenga otro en el MDC, y lo restaura")
     void publicadoConMdcDeOtroCierre() throws Exception {
+        BrokerDePrueba.confirmaTodo(rabbit);
         outbox.deleteAll();
         outbox.save(new com.cafeorbe.auction.infrastructure.outbox.OutboxEvento(java.util.UUID.randomUUID(),
                 "puja.aceptada", "{}", java.time.Instant.now(), "corr-de-la-puja"));

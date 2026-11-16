@@ -13,6 +13,8 @@ cafeorbe:
     credencial-interna: credencial-de-prueba
   outbox:
     scheduler: false
+    # Sin confirmación del broker simulado, las pruebas no esperan 5 s.
+    confirmacion-ms: 200
   cierre:
     scheduler: false
 
