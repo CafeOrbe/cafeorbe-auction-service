@@ -31,6 +31,11 @@ spring:
     virtual-host: ${RABBIT_VHOST:/}
     ssl:
       enabled: ${RABBIT_SSL:false}
+    # Outbox: el evento solo se marca publicado con la confirmación del broker (ack) y sin devolución.
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
 
 cafeorbe:
   seguridad:
@@ -43,6 +48,8 @@ cafeorbe:
     read-timeout-ms: 2000
   outbox:
     scheduler: true
+    # Cuánto se espera la confirmación del broker; sin ella el evento queda pendiente y se reintenta.
+    confirmacion-ms: ${OUTBOX_CONFIRMACION_MS:5000}
     intervalo-ms: 200
   subasta:
     anti-sniping:

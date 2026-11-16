@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.amqp.core.Message;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -71,6 +72,7 @@ class SubastaApiTest {
         subastas.deleteAll();
         when(wallet.saldoDe(ANA)).thenReturn(OptionalLong.of(500));
         when(wallet.saldoDe(BRUNO)).thenReturn(OptionalLong.of(50));
+        BrokerDePrueba.confirmaTodo(rabbit);
     }
 
     // ── utilidades ─────────────────────────────────────────────────────────
@@ -455,12 +457,12 @@ class SubastaApiTest {
         assertThat(publicados).isEqualTo(2);
         assertThat(outbox.countByPublicadoEnIsNull()).isZero();
         var mensaje = org.mockito.ArgumentCaptor.forClass(Message.class);
-        verify(rabbit).send(eq(Eventos.EXCHANGE), eq(Eventos.SUBASTA_INICIADA), mensaje.capture());
+        verify(rabbit).send(eq(Eventos.EXCHANGE), eq(Eventos.SUBASTA_INICIADA), mensaje.capture(), any(CorrelationData.class));
         JsonNode sobre = json.readTree(mensaje.getValue().getBody());
         assertThat(sobre.get("tipo").asText()).isEqualTo(Eventos.SUBASTA_INICIADA);
         assertThat(sobre.get("datos").get("subastaId").asText()).isEqualTo(id);
         assertThat(sobre.get("datos").get("precioBase").asLong()).isEqualTo(100);
-        verify(rabbit).send(eq(Eventos.EXCHANGE), eq(Eventos.PUJA_ACEPTADA), any(Message.class));
+        verify(rabbit).send(eq(Eventos.EXCHANGE), eq(Eventos.PUJA_ACEPTADA), any(Message.class), any(CorrelationData.class));
     }
 
     @Test
@@ -468,14 +470,67 @@ class SubastaApiTest {
     void brokerCaidoSeReintenta() throws Exception {
         subastaEnCurso();
         Mockito.doThrow(new org.springframework.amqp.AmqpConnectException(new RuntimeException("caído")))
-                .when(rabbit).send(any(String.class), any(String.class), any(Message.class));
+                .when(rabbit).send(any(String.class), any(String.class), any(Message.class), any(CorrelationData.class));
 
         assertThat(publicador.publicarPendientes()).isZero();
         assertThat(outbox.countByPublicadoEnIsNull()).isEqualTo(1);
 
         Mockito.reset(rabbit);
+        BrokerDePrueba.confirmaTodo(rabbit);
         assertThat(publicador.publicarPendientes()).isEqualTo(1);
         assertThat(outbox.countByPublicadoEnIsNull()).isZero();
+    }
+
+    @Test
+    @DisplayName("Outbox · Si el broker rechaza (nack) el evento no se marca publicado y se reintenta")
+    void brokerRechazaSeReintenta() throws Exception {
+        subastaEnCurso();
+        BrokerDePrueba.rechazaTodo(rabbit);
+
+        assertThat(publicador.publicarPendientes()).isZero();
+        assertThat(outbox.countByPublicadoEnIsNull()).isEqualTo(1);
+
+        BrokerDePrueba.confirmaTodo(rabbit);
+        assertThat(publicador.publicarPendientes()).isEqualTo(1);
+        assertThat(outbox.countByPublicadoEnIsNull()).isZero();
+    }
+
+    @Test
+    @DisplayName("Outbox · Un evento devuelto por el broker (sin cola que lo reciba) queda pendiente")
+    void brokerDevuelveQuedaPendiente() throws Exception {
+        subastaEnCurso();
+        BrokerDePrueba.devuelveTodo(rabbit);
+
+        assertThat(publicador.publicarPendientes()).isZero();
+        assertThat(outbox.countByPublicadoEnIsNull()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Outbox · Sin confirmación a tiempo (broker caído tras recibir) el evento queda pendiente y luego se reentrega con el mismo id")
+    void sinConfirmacionSeReentregaConElMismoId() throws Exception {
+        String id = subastaEnCurso();
+        mvc.perform(pujarComoAna(id, 110)).andExpect(status().isOk());
+        BrokerDePrueba.nuncaConfirma(rabbit);
+
+        assertThat(publicador.publicarPendientes()).isZero();
+        assertThat(outbox.countByPublicadoEnIsNull()).isEqualTo(2);
+
+        var primeros = org.mockito.ArgumentCaptor.forClass(Message.class);
+        verify(rabbit, Mockito.times(2)).send(eq(Eventos.EXCHANGE), any(String.class), primeros.capture(),
+                any(CorrelationData.class));
+
+        Mockito.reset(rabbit);
+        BrokerDePrueba.confirmaTodo(rabbit);
+        assertThat(publicador.publicarPendientes()).isEqualTo(2);
+        assertThat(outbox.countByPublicadoEnIsNull()).isZero();
+
+        // Se reentrega con el mismo messageId: wallet descarta el repetido y no cobra dos veces.
+        var reentregados = org.mockito.ArgumentCaptor.forClass(Message.class);
+        verify(rabbit, Mockito.times(2)).send(eq(Eventos.EXCHANGE), any(String.class), reentregados.capture(),
+                any(CorrelationData.class));
+        assertThat(reentregados.getAllValues()).extracting(m -> m.getMessageProperties().getMessageId())
+                .containsExactlyElementsOf(primeros.getAllValues().stream()
+                        .map(m -> m.getMessageProperties().getMessageId()).toList());
     }
 
     // ── Sprint 2 ───────────────────────────────────────────────────────────
