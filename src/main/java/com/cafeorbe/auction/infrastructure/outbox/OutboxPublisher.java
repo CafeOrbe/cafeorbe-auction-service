@@ -27,7 +27,7 @@ import java.time.Clock;
 public class OutboxPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxPublisher.class);
-    private static final int TAMANO_LOTE = 50;
+    private static final int TAMANO_LOTE = 25;
     public static final String CABECERA_SECUENCIA = "x-secuencia";
     public static final String CABECERA_CORRELACION = "x-correlation-id";
 
