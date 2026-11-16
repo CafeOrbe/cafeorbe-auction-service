@@ -23,8 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WalletClient {
 
     private static final Logger log = LoggerFactory.getLogger(WalletClient.class);
-    /** REN-01: TTL de caché de saldo en memoria para soportar hasta 20 pujas/s sin saturar wallet. */
-    private static final long TTL_SALDO_NANOS = Duration.ofSeconds(10).toNanos();
+    /** REN-01: TTL de caché de saldo en memoria (5 minutos) para soportar hasta 20 pujas/s sin saturar wallet. */
+    private static final long TTL_SALDO_NANOS = Duration.ofMinutes(5).toNanos();
 
     private record EntradaCache(long saldo, long venceNanos) {}
     private final Map<UUID, EntradaCache> cache = new ConcurrentHashMap<>();
