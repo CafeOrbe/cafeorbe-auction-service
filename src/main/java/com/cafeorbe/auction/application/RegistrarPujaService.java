@@ -26,6 +26,7 @@ import java.time.Clock;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** HU-13 y HU-14: valida y registra una puja. */
 @Service
@@ -60,6 +61,7 @@ public class RegistrarPujaService {
     private final MeterRegistry metricas;
     private final Timer duracion;
     private final ConcurrentHashMap<UUID, Long> ultimosMinimos = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, AtomicLong> montosEnVuelo = new ConcurrentHashMap<>();
 
     public RegistrarPujaService(SubastaRepository subastas, PujaRepository pujas, WalletClient wallet,
                                 OutboxWriter outbox, Clock reloj, PlatformTransactionManager gestor,
@@ -92,6 +94,21 @@ public class RegistrarPujaService {
             return temprano;
         }
 
+        // REN-01: serialización en memoria por monto: si ya hay una puja en curso o aceptada por este monto
+        // o mayor, el intento concurrente se rechaza de inmediato sin competir por SELECT FOR UPDATE en Postgres.
+        AtomicLong enVuelo = montosEnVuelo.computeIfAbsent(subastaId, k -> new AtomicLong(0));
+        long previo = enVuelo.get();
+        if (monto <= previo) {
+            long siguiente = ultimosMinimos.getOrDefault(subastaId, monto);
+            var rechazo = new ResultadoPuja.Rechazada(MotivoRechazo.INCREMENTO_MINIMO, monto);
+            return new Registro(rechazo, Math.max(siguiente, monto), 0, false);
+        }
+        if (!enVuelo.compareAndSet(previo, monto)) {
+            long siguiente = ultimosMinimos.getOrDefault(subastaId, monto);
+            var rechazo = new ResultadoPuja.Rechazada(MotivoRechazo.INCREMENTO_MINIMO, monto);
+            return new Registro(rechazo, Math.max(siguiente, monto), 0, false);
+        }
+
         // El saldo se consulta antes de bloquear la subasta para no sostener el bloqueo durante una llamada HTTP.
         OptionalLong saldo = wallet.saldoDe(usuario.id());
 
@@ -101,13 +118,13 @@ public class RegistrarPujaService {
 
             ResultadoPuja resultado = subasta.pujar(usuario.id(), usuario.nombre(), monto, saldo, reloj.instant());
             long siguiente = subasta.reglas().isPresent() ? subasta.siguienteMinimo() : 0;
+            ultimosMinimos.put(subastaId, siguiente);
 
             switch (resultado) {
                 case ResultadoPuja.Aceptada aceptada -> {
                     var puja = aceptada.puja();
                     pujas.save(puja);
                     subastas.save(subasta);
-                    ultimosMinimos.put(subastaId, siguiente);
                     outbox.registrar(Eventos.PUJA_ACEPTADA, new PujaAceptada(subastaId, puja.getId(),
                             usuario.id(), usuario.nombre(), puja.getMonto(), subasta.getCantidadPujas(), siguiente,
                             puja.getCreadaEn()));
@@ -119,6 +136,7 @@ public class RegistrarPujaService {
                     }
                 }
                 case ResultadoPuja.Rechazada rechazada -> {
+                    enVuelo.compareAndSet(monto, previo);
                     // REN-01: El rechazo por incremento mínimo se avisa síncronamente en HTTP 422; no se inunda la outbox
                     // con miles de eventos efímeros que bloquean la base de datos y saturan el broker.
                     if (rechazada.motivo() != MotivoRechazo.INCREMENTO_MINIMO) {
@@ -136,21 +154,19 @@ public class RegistrarPujaService {
 
     private Registro rechazoTemprano(UUID subastaId, long monto) {
         Long minimoConocido = ultimosMinimos.get(subastaId);
-        if (minimoConocido != null && monto < minimoConocido) {
+        if (minimoConocido == null) {
+            Subasta vistazo = subastas.findById(subastaId).orElse(null);
+            if (vistazo == null || vistazo.getEstado() != EstadoSubasta.EN_CURSO || vistazo.reglas().isEmpty()) {
+                return null;
+            }
+            minimoConocido = vistazo.siguienteMinimo();
+            ultimosMinimos.put(subastaId, minimoConocido);
+        }
+        if (monto < minimoConocido) {
             var rechazo = new ResultadoPuja.Rechazada(MotivoRechazo.INCREMENTO_MINIMO, monto);
             return new Registro(rechazo, minimoConocido, 0, false);
         }
-        Subasta vistazo = subastas.findById(subastaId).orElse(null);
-        if (vistazo == null || vistazo.getEstado() != EstadoSubasta.EN_CURSO || vistazo.reglas().isEmpty()) {
-            return null;
-        }
-        long minimo = vistazo.siguienteMinimo();
-        ultimosMinimos.put(subastaId, minimo);
-        if (monto >= minimo) {
-            return null;
-        }
-        var rechazo = new ResultadoPuja.Rechazada(MotivoRechazo.INCREMENTO_MINIMO, monto);
-        return new Registro(rechazo, minimo, vistazo.getCantidadPujas(), false);
+        return null;
     }
 
     private void contar(Registro registro) {

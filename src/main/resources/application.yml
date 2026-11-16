@@ -43,7 +43,7 @@ cafeorbe:
     read-timeout-ms: 2000
   outbox:
     scheduler: true
-    intervalo-ms: 200
+    intervalo-ms: ${OUTBOX_INTERVALO_MS:25}
   subasta:
     anti-sniping:
       # HU-18: una puja válida cuando falta esta ventana o menos extiende el tiempo esa misma cantidad
