@@ -6,8 +6,6 @@ import com.cafeorbe.auction.infrastructure.SubastaRepository;
 import com.cafeorbe.auction.infrastructure.outbox.OutboxWriter;
 import com.cafeorbe.contracts.Eventos;
 import com.cafeorbe.contracts.eventos.SubastaCerrada;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,15 +20,16 @@ import java.time.Instant;
 @Service
 public class CierreDeSubastas {
 
-    private static final Logger log = LoggerFactory.getLogger(CierreDeSubastas.class);
     private static final int TAMANO_LOTE = 50;
 
     private final SubastaRepository subastas;
     private final OutboxWriter outbox;
+    private final TelemetriaDeSubastas telemetria;
 
-    public CierreDeSubastas(SubastaRepository subastas, OutboxWriter outbox) {
+    public CierreDeSubastas(SubastaRepository subastas, OutboxWriter outbox, TelemetriaDeSubastas telemetria) {
         this.subastas = subastas;
         this.outbox = outbox;
+        this.telemetria = telemetria;
     }
 
     /** @return cantidad de subastas cerradas en esta pasada */
@@ -68,6 +67,6 @@ public class CierreDeSubastas {
                 subasta.getCantidadPujas(), ahora,
                 // HU-24: wallet abona al Subastador lo que cobra al ganador.
                 subasta.getSubastadorId()));
-        log.info("Subasta {} cerrada: {} ({} pujas)", subasta.getId(), subasta.getEstado(), subasta.getCantidadPujas());
+        telemetria.cerrada(subasta, conGanador);
     }
 }
