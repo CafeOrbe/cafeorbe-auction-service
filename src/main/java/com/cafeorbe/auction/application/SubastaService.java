@@ -27,14 +27,16 @@ public class SubastaService {
     private final OutboxWriter outbox;
     private final Clock reloj;
     private final AntiSniping antiSniping;
+    private final TelemetriaDeSubastas telemetria;
 
-    public SubastaService(SubastaRepository subastas, OutboxWriter outbox, Clock reloj,
+    public SubastaService(SubastaRepository subastas, OutboxWriter outbox, Clock reloj, TelemetriaDeSubastas telemetria,
                           @Value("${cafeorbe.subasta.anti-sniping.ventana-segundos}") int ventanaSegundos,
                           @Value("${cafeorbe.subasta.anti-sniping.max-extensiones}") int maxExtensiones) {
         this.subastas = subastas;
         this.outbox = outbox;
         this.reloj = reloj;
         this.antiSniping = new AntiSniping(ventanaSegundos, maxExtensiones);
+        this.telemetria = telemetria;
     }
 
     /** HU-08 */
@@ -43,7 +45,9 @@ public class SubastaService {
         usuario.exigirRol(Rol.SUBASTADOR);
         Subasta subasta = Subasta.programar(datos.nombre(), datos.descripcion(), datos.fechaInicio(),
                 usuario.id(), usuario.nombre(), reloj.instant());
-        return subastas.save(subasta).getId();
+        Subasta guardada = subastas.save(subasta);
+        telemetria.creada(guardada);
+        return guardada.getId();
     }
 
     /** HU-09 */
@@ -73,6 +77,7 @@ public class SubastaService {
         outbox.registrar(Eventos.SUBASTA_INICIADA, new SubastaIniciada(subasta.getId(), subasta.getNombre(),
                 subasta.getPrecioBase(), subasta.getIncrementoMinimo(), subasta.getDuracionMinutos(),
                 subasta.getHoraInicio(), subasta.getHoraFin()));
+        telemetria.iniciada(subasta);
     }
 
     private Subasta cargarPropia(UUID id, UsuarioActual usuario) {
