@@ -60,6 +60,7 @@ class SubastaApiTest {
     @Autowired OutboxPublisher publicador;
     @Autowired com.cafeorbe.auction.application.CierreDeSubastas cierre;
     @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired io.micrometer.core.instrument.MeterRegistry metricas;
     @MockitoBean RabbitTemplate rabbit;
     @MockitoBean WalletClient wallet;
 
@@ -726,5 +727,37 @@ class SubastaApiTest {
         mvc.perform(ana(get("/api/subastas/" + UUID.randomUUID() + "/pujas")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.mensaje").value("La subasta no existe"));
+    }
+
+    // ── OBS-01 · Telemetría de negocio ────────────────────────────────────
+
+    private double subastasContadas(String evento, String resultado) {
+        var contador = metricas.find("cafeorbe.auction.subastas").tag("evento", evento).tag("resultado", resultado).counter();
+        return contador == null ? 0 : contador.count();
+    }
+
+    @Test
+    @DisplayName("OBS-01 · Crear, iniciar y cerrar una subasta suma la métrica de negocio; un intento rechazado no cuenta")
+    void telemetriaDeSubastas() throws Exception {
+        double creadas = subastasContadas("creada", "-");
+        double iniciadas = subastasContadas("iniciada", "-");
+        double conGanador = subastasContadas("cerrada", "con_ganador");
+        double desiertas = subastasContadas("cerrada", "desierta");
+
+        // Un Comprador no puede crear: la transacción no se confirma y no se cuenta.
+        mvc.perform(ana(post("/api/subastas")).contentType(MediaType.APPLICATION_JSON)
+                        .content(crearSubastaConFecha("No va", Instant.now().plus(1, ChronoUnit.DAYS))))
+                .andExpect(status().isForbidden());
+        assertThat(subastasContadas("creada", "-")).isEqualTo(creadas);
+
+        String vendida = subastaEnCurso();
+        pujar(ana(post("/api/subastas/" + vendida + "/pujas")), 110);
+        subastaEnCurso(); // sin pujas: queda desierta
+        assertThat(subastasContadas("creada", "-")).isEqualTo(creadas + 2);
+        assertThat(subastasContadas("iniciada", "-")).isEqualTo(iniciadas + 2);
+
+        cierre.cerrarVencidas(Instant.now().plus(11, ChronoUnit.MINUTES));
+        assertThat(subastasContadas("cerrada", "con_ganador")).isEqualTo(conGanador + 1);
+        assertThat(subastasContadas("cerrada", "desierta")).isEqualTo(desiertas + 1);
     }
 }
