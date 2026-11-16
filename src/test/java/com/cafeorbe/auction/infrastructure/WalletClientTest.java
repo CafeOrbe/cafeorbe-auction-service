@@ -117,4 +117,27 @@ class WalletClientTest {
 
         assertThat(cliente().saldoDe(ANA)).isEmpty();
     }
+
+    @Test
+    @DisplayName("REN-01: Caché de saldo evita llamadas repetidas al servidor para el mismo usuario")
+    void cacheDeSaldoReutilizaValor() {
+        codigo.set(200);
+        cuerpo.set("{\"usuarioId\":\"" + ANA + "\",\"saldo\":5000}");
+        WalletClient client = cliente();
+
+        OptionalLong primero = client.saldoDe(ANA);
+        assertThat(primero).isPresent().hasValue(5000L);
+
+        // Cambiar respuesta de wallet falso a error 500
+        codigo.set(500);
+        cuerpo.set("{\"status\":500}");
+
+        // Sigue retornando el saldo en caché
+        OptionalLong segundo = client.saldoDe(ANA);
+        assertThat(segundo).isPresent().hasValue(5000L);
+
+        // Si se invalida explícitamente, ahora falla porque wallet devuelve 500 y no hay caché previo
+        client.invalidar(ANA);
+        assertThat(client.saldoDe(ANA)).isEmpty();
+    }
 }
