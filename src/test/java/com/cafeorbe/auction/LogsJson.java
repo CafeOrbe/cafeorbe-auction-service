@@ -65,6 +65,19 @@ public final class LogsJson extends AppenderBase<ILoggingEvent> implements AutoC
         assertThat(linea.split("\"correlationId\"", -1)).hasSize(2);
     }
 
+    /** La línea JSON con ese mensaje: debe existir, ser JSON válido y llevar el correlationId una sola vez. */
+    public com.fasterxml.jackson.databind.JsonNode mensajeUnaVez(String mensaje, String correlacion) throws Exception {
+        assertThat(errores).as("errores al escribir el log JSON").isEmpty();
+        String linea = lineas.stream()
+                .filter(l -> l.contains("\"message\":\"" + mensaje + "\""))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("El mensaje " + mensaje + " no quedó en el log JSON"));
+        var json = JSON.readTree(linea);
+        assertThat(json.path("correlationId").asText()).isEqualTo(correlacion);
+        assertThat(linea.split("\"correlationId\"", -1)).hasSize(2);
+        return json;
+    }
+
     @Override
     public void close() {
         loggers.forEach(l -> l.detachAppender(this));
