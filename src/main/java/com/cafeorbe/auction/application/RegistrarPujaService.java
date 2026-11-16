@@ -13,7 +13,6 @@ import com.cafeorbe.auction.infrastructure.outbox.OutboxWriter;
 import com.cafeorbe.contracts.Eventos;
 import com.cafeorbe.contracts.Rol;
 import com.cafeorbe.contracts.eventos.PujaAceptada;
-import com.cafeorbe.contracts.eventos.PujaRechazada;
 import com.cafeorbe.contracts.eventos.TiempoExtendido;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -44,8 +43,8 @@ public class RegistrarPujaService {
     /**
      * Resultado del dominio más el estado de la subasta tras procesar la puja.
      *
-     * @param porEvento {@code false} cuando el rechazo se decidió sin transacción y sin publicar PujaRechazada
-     *                  (REN-01): quien reenvió la puja debe avisar directamente a quien pujó
+     * @param porEvento {@code false} en todo rechazo: no se publica PujaRechazada (REN-01), así que quien reenvió
+     *                  la puja debe avisar directamente a quien pujó
      */
     public record Registro(ResultadoPuja resultado, long siguienteMinimo, int cantidadPujas, boolean porEvento) {
         public Registro(ResultadoPuja resultado, long siguienteMinimo, int cantidadPujas) {
@@ -135,9 +134,14 @@ public class RegistrarPujaService {
                                 extension.horaFin(), extension.numero(), extension.maximo()));
                     }
                 }
-                case ResultadoPuja.Rechazada rechazada -> outbox.registrar(Eventos.PUJA_RECHAZADA,
-                        new PujaRechazada(subastaId, usuario.id(), rechazada.montoIntentado(),
-                                rechazada.motivo().name(), rechazada.motivo().mensaje()));
+                case ResultadoPuja.Rechazada rechazada -> {
+                    // REN-01: con 20 pujas por segundo sobre el mismo precio, muchas pasan la lectura sin bloqueo y
+                    // pierden la carrera aquí. Escribir PujaRechazada en el outbox alargaba el bloqueo de la fila
+                    // una ida y vuelta más a PostgreSQL (en otra región), y todas las pujas de la sala hacen fila
+                    // detrás: con 20/s la fila no se vaciaba (p95 de 2,85 s en QA). El rechazo solo le interesa a
+                    // quien pujó, y se le entrega en la respuesta (porEvento=false), igual que el rechazo temprano.
+                    return new Registro(rechazada, siguiente, subasta.getCantidadPujas(), false);
+                }
             }
             return new Registro(resultado, siguiente, subasta.getCantidadPujas());
         });
