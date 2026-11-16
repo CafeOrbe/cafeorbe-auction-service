@@ -377,7 +377,7 @@ class SubastaApiTest {
     }
 
     @Test
-    @DisplayName("HU-13 y HU-14 · Saldo insuficiente: 422 con Orbes insuficientes, no cambia el líder y publica PujaRechazada")
+    @DisplayName("HU-13 y HU-14 · Saldo insuficiente: 422 con Orbes insuficientes, no cambia el líder y se responde directo, sin evento")
     void saldoInsuficiente() throws Exception {
         String id = subastaEnCurso();
 
@@ -390,7 +390,8 @@ class SubastaApiTest {
                 .andExpect(jsonPath("$.lider").doesNotExist())
                 .andExpect(jsonPath("$.precioActual").value(100));
         assertThat(pujas.count()).isZero();
-        assertThat(tiposEnOutbox()).containsExactly(Eventos.SUBASTA_INICIADA, Eventos.PUJA_RECHAZADA);
+        // REN-01: el rechazo no se publica; quien reenvió la puja avisa a quien pujó (porEvento=false).
+        assertThat(tiposEnOutbox()).containsExactly(Eventos.SUBASTA_INICIADA);
     }
 
     @Test

@@ -188,15 +188,15 @@ class CalidadSprint2Test {
     }
 
     @Test
-    @DisplayName("REN-01 · Un rechazo decidido con la subasta bloqueada (saldo) sí se publica como evento")
-    void rechazoConEvento() throws Exception {
+    @DisplayName("REN-01 · Un rechazo decidido con la subasta bloqueada (saldo) se responde directo, sin evento: no alarga el bloqueo")
+    void rechazoBajoBloqueoSinEvento() throws Exception {
         String id = enCurso();
         when(wallet.saldoDe(ANA)).thenReturn(OptionalLong.of(10));
         mvc.perform(como(post("/api/subastas/" + id + "/pujas"), ANA, "COMPRADOR").content("{\"monto\":110}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.motivo").value("SALDO_INSUFICIENTE"))
-                .andExpect(jsonPath("$.porEvento").value(true));
-        assertThat(outbox.findAll()).anyMatch(o -> o.getTipo().equals(Eventos.PUJA_RECHAZADA));
+                .andExpect(jsonPath("$.porEvento").value(false));
+        assertThat(outbox.findAll()).noneMatch(o -> o.getTipo().equals(Eventos.PUJA_RECHAZADA));
     }
 
     @Test
