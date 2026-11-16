@@ -121,7 +121,7 @@ public class OutboxPublisher {
         try {
             CorrelationData.Confirm respuesta = confirmacion.getFuture().get(esperaConfirmacionMs, TimeUnit.MILLISECONDS);
             if (!respuesta.isAck()) {
-                return "rechazado (nack" + (respuesta.getReason() == null ? "" : ": " + respuesta.getReason()) + ")";
+                return "rechazado (nack: " + respuesta.getReason() + ")";
             }
             if (confirmacion.getReturned() != null) {
                 return "devuelto sin enrutar (" + confirmacion.getReturned().getReplyText() + ")";
