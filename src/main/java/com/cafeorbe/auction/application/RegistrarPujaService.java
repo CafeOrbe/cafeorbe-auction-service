@@ -16,6 +16,8 @@ import com.cafeorbe.contracts.eventos.PujaAceptada;
 import com.cafeorbe.contracts.eventos.TiempoExtendido;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -28,6 +30,8 @@ import java.util.UUID;
 /** HU-13 y HU-14: valida y registra una puja. */
 @Service
 public class RegistrarPujaService {
+
+    private static final Logger log = LoggerFactory.getLogger(RegistrarPujaService.class);
 
     /**
      * OBS-01 / REN-01: buckets fijos en los umbrales del escenario (p95 ≤ 800 ms, p99 ≤ 1,5 s). Un histograma
@@ -77,7 +81,23 @@ public class RegistrarPujaService {
         usuario.exigirRol(Rol.COMPRADOR);
         Registro registro = duracion.record(() -> procesar(subastaId, usuario, monto));
         contar(registro);
+        registrarEnLog(subastaId, usuario, monto, registro);
         return registro;
+    }
+
+    /**
+     * OBS-01: una línea por puja con su resultado. El correlationId viene del MDC (FiltroDeCorrelacion); no se agrega
+     * aquí con addKeyValue porque saldría repetido en el JSON. Cubre también el rechazo temprano, que no publica
+     * evento y antes no dejaba rastro en auction.
+     */
+    static void registrarEnLog(UUID subastaId, UsuarioActual usuario, long monto, Registro registro) {
+        var linea = log.atInfo().addKeyValue("subastaId", subastaId).addKeyValue("usuario", usuario.id())
+                .addKeyValue("monto", monto);
+        switch (registro.resultado()) {
+            case ResultadoPuja.Aceptada a -> linea.addKeyValue("resultado", "aceptada").log("Puja registrada: aceptada");
+            case ResultadoPuja.Rechazada r -> linea.addKeyValue("resultado", "rechazada")
+                    .addKeyValue("motivo", r.motivo().name()).log("Puja registrada: rechazada");
+        }
     }
 
     private Registro procesar(UUID subastaId, UsuarioActual usuario, long monto) {
