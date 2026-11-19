@@ -50,7 +50,9 @@ cafeorbe:
     scheduler: true
     # Cuánto se espera la confirmación del broker; sin ella el evento queda pendiente y se reintenta.
     confirmacion-ms: ${OUTBOX_CONFIRMACION_MS:5000}
-    intervalo-ms: 200
+    # Respaldo de la publicación inmediata (OutboxDespachador). Antes la variable OUTBOX_INTERVALO_MS de QA no se
+    # leía: el valor fijo de 200 ms se sumaba entero al p95 de REN-01.
+    intervalo-ms: ${OUTBOX_INTERVALO_MS:200}
   subasta:
     anti-sniping:
       # HU-18: una puja válida cuando falta esta ventana o menos extiende el tiempo esa misma cantidad
