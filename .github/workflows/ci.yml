@@ -141,7 +141,8 @@ jobs:
               "OTLP_METRICS_AUTH=$OTLP_METRICS_AUTH" \
               "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/auction_db" \
               "DB_USER=cafeorbe" \
-              "DB_POOL_MAX=2" \
+              "DB_POOL_MAX=4" \
+              "OUTBOX_INTERVALO_MS=500" \
               "DB_PASSWORD=$DB_PASSWORD" \
               "RABBIT_HOST=toucan.lmq.cloudamqp.com" \
               "RABBIT_PORT=5671" \
@@ -261,7 +262,8 @@ jobs:
               "OTLP_METRICS_AUTH=$OTLP_METRICS_AUTH" \
               "DB_URL=jdbc:postgresql://${DB_HOST}:5432/auction_db" \
               "DB_USER=cafeorbe" \
-              "DB_POOL_MAX=2" \
+              "DB_POOL_MAX=4" \
+              "OUTBOX_INTERVALO_MS=500" \
               "DB_PASSWORD=$DB_PASSWORD" \
               "RABBIT_HOST=$PROD_RABBIT_HOST" \
               "RABBIT_PORT=5671" \
