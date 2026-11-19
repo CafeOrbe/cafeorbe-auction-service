@@ -5,6 +5,7 @@ import com.cafeorbe.contracts.EventoEnvelope;
 import org.slf4j.MDC;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,12 +27,23 @@ public class OutboxWriter {
         this.reloj = reloj;
     }
 
+    /** REN-01: si existe (scheduler activo), publica el evento en cuanto confirma la transacción. */
+    private OutboxDespachador despachador;
+
+    @Autowired(required = false)
+    void setDespachador(OutboxDespachador despachador) {
+        this.despachador = despachador;
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
     public void registrar(String tipo, Object datos) {
         var envoltorio = new EventoEnvelope<>(UUID.randomUUID(), tipo, 1, reloj.instant(), datos);
         try {
             outbox.save(new OutboxEvento(envoltorio.eventId(), tipo, json.writeValueAsString(envoltorio),
                     envoltorio.ocurridoEn(), MDC.get(FiltroDeCorrelacion.MDC_CLAVE)));
+            if (despachador != null) {
+                despachador.alConfirmar();
+            }
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("No se pudo serializar el evento " + tipo, e);
         }
